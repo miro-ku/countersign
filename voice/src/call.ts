@@ -63,6 +63,10 @@ export class Call {
   private turnAudio: Buffer[] = [];
   private liveText: string[] = [];
   private inTurn = false;
+  /** The microphone switch has been used in this call. */
+  private switched = false;
+  /** Live lines are being kept for the turn that is open or just closing. */
+  private collecting = false;
   private handledAsks = new Set<string>();
   private judging = false;
   private joinedAt = Date.now();
@@ -142,6 +146,8 @@ export class Call {
     this.turnAudio = [];
     this.liveText = [];
     this.inTurn = true;
+    this.switched = true;
+    this.collecting = true;
     if (this.playing) this.bargeIn();
   }
 
@@ -172,6 +178,7 @@ export class Call {
       text = this.liveText.join(' ').trim();
     }
     this.liveText = [];
+    this.collecting = false;
     if (text) await this.onFinal(text);
     else this.tell({ type: 'state', state: 'listening' });
   }
@@ -185,9 +192,12 @@ export class Call {
 
   /** A line of the live transcript. During a turn it is only kept; the turn's end decides. */
   private onLive(text: string) {
-    if (this.inTurn || this.liveText.length) {
+    // Once the microphone switch is in use, the turn's end decides what was
+    // said. A live line that arrives late must not be sent as a second message.
+    if (this.switched) {
+      if (!this.collecting) return;
       this.liveText.push(text);
-      this.tell({ type: 'heard', text: this.liveText.join(' ') });
+      if (this.inTurn) this.tell({ type: 'heard', text: this.liveText.join(' ') });
       return;
     }
     void this.onFinal(text);
