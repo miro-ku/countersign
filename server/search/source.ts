@@ -10,7 +10,7 @@ export const RECORD_TOOLS = ['record_search', 'record_explain'];
 
 /** The line the server adds to the agent's system prompt. */
 export const RECORD_PROMPT_LINE =
-  'You have a record of your own past conversations and actions. When someone asks what you did, when, or why, look it up with record_search and record_explain before answering, and say who asked for it and who approved it.';
+  'You have a record of your own past conversations and actions. Use record_search and record_explain only when the person asks about the past: what you did, when, why, or who approved it. Then look it up before answering, and say who asked for it and who approved it. Never use them for anything else, and never after a tool call was refused or rejected: in that case say in one sentence that it was refused, and stop.';
 
 export function isRecordTool(name: string): boolean {
   return RECORD_TOOLS.includes(name);

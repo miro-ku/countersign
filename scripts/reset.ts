@@ -68,8 +68,8 @@ function hostOf(u: string): string {
 
 /** Emptied entirely (conversations of kept agents go too). */
 const CONVERSATION_DATA = ['conversations', 'messages', 'executions', 'asks', 'decisions', 'ledger', 'notes', 'counters'];
-/** Companions of the ledger, emptied when they exist. */
-const COMPANIONS = ['ledger_vectors'];
+/** The searchable record of actions and messages, emptied when it exists. */
+const COMPANIONS = ['record'];
 
 interface Plan {
   name: string;
@@ -164,7 +164,7 @@ async function stopServer(): Promise<void> {
     let child = procInfo(pid);
     while (child && child.ppid > 1) {
       const parent = procInfo(child.ppid);
-      if (!parent || !/tsx(\/dist\/cli\.mjs)? watch|pnpm dev:server/.test(parent.command)) break;
+      if (!parent || !/tsx(\/dist\/cli\.mjs)? (watch|server\/index)|pnpm (dev|start):server/.test(parent.command)) break;
       targets.add(child.ppid);
       child = parent;
     }
@@ -181,9 +181,9 @@ async function stopServer(): Promise<void> {
 
 async function startServer(expectedAgents: number): Promise<void> {
   const out = openSync(SERVER_LOG, 'a');
-  const child = spawn('pnpm', ['dev:server'], { cwd: ROOT, detached: true, stdio: ['ignore', out, out] });
+  const child = spawn('pnpm', ['start:server'], { cwd: ROOT, detached: true, stdio: ['ignore', out, out] });
   child.unref();
-  console.log(`Started pnpm dev:server (pid ${child.pid}), log at ${SERVER_LOG}.`);
+  console.log(`Started pnpm start:server (pid ${child.pid}), log at ${SERVER_LOG}.`);
   const deadline = Date.now() + 60_000;
   let last = '';
   while (Date.now() < deadline) {
