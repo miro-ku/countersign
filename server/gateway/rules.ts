@@ -52,7 +52,7 @@ export function ruleMatches(rule: RuleDoc, action: Action): boolean {
   if (m.action !== undefined && m.action !== action.name) return false;
   if (m.kind !== undefined && m.kind !== action.kind) return false;
   if (m.actionPattern !== undefined && !test(m.actionPattern, action.name)) return false;
-  if (m.argsPattern !== undefined && !test(m.argsPattern, JSON.stringify(action.args ?? null))) return false;
+  if (m.argsPattern !== undefined && !test(m.argsPattern, JSON.stringify(action.args ?? null)) && !test(m.argsPattern, JSON.stringify(action.identity ?? null))) return false;
   return true;
 }
 

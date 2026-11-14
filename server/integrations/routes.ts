@@ -1,7 +1,7 @@
 // Connecting an app to an agent: start, return from Composio, list, revoke.
 import type { Hono } from 'hono';
 import { ObjectId, type Db } from 'mongodb';
-import type { Composio } from '@composio/core';
+import { AuthScheme, type Composio } from '@composio/core';
 import {
   composioClient,
   composioUserId,
@@ -74,6 +74,21 @@ export function registerConnectionRoutes(api: Hono, db: Db): void {
     if (!(await agents.findOne({ _id: agentId }))) return { error: 'No such agent.', status: 404 };
 
     const authConfigId = await ensureAuthConfig(composio, toolkit);
+
+    // Stripe with a test key kept on this machine: connected at once, and the
+    // key is never typed on screen. A live key is refused here.
+    const testKey = process.env.STRIPE_TEST_KEY ?? '';
+    if (toolkit === 'stripe' && testKey.startsWith('sk_test_')) {
+      const userId = composioUserId(agentId);
+      const request = await composio.connectedAccounts.initiate(userId, authConfigId, { config: AuthScheme.APIKey({ api_key: testKey }) } as any);
+      const id = new ObjectId().toHexString();
+      await connections.deleteMany({ agentId, toolkit, status: 'pending' });
+      await connections.insertOne({
+        _id: id, agentId, ownerId: OWNER_ID, toolkit, composioUserId: userId, composioAccountId: request.id,
+        status: 'active', connectedAt: new Date(), revokedAt: null, createdAt: new Date(),
+      });
+      return { redirectUrl: `${WEB_URL()}/?connected=stripe`, connectionId: id };
+    }
     // At most one pending attempt per agent and app: a new attempt takes over
     // the old record (same id, so the old link's return still finds it).
     const previous = await connections.findOne({ agentId, toolkit, status: 'pending' }, { sort: { createdAt: -1 } });

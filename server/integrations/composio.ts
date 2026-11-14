@@ -235,12 +235,16 @@ const SESSION_TTL_MS = 30 * 60_000;
 const CHANNELS_TTL_MS = 10 * 60_000;
 const CHANNELS_WAIT_MS = 4000;
 
+interface ChargeInfo { amount: number; currency: string; description: string; paymentIntent?: string }
+
 export function createSource(db: Db, composio: Composio): ComposioSource {
   const connections = connectionsOf(db);
   const sessions = new Map<string, SessionEntry>();
   // The connection id for each toolkit, per agent, as of the last tools() call.
   // actionsOf is synchronous, so it reads this; run() re-checks the database.
   const known = new Map<string, Map<string, string>>();
+  // Stripe charges by id, per connection, learned from Stripe results.
+  const charges = new Map<string, Map<string, ChargeInfo>>();
   // Slack channel names by id, per connection, learned from Slack results.
   const channels = new Map<string, { names: Map<string, string>; at: number }>();
 
@@ -259,6 +263,41 @@ export function createSource(db: Db, composio: Composio): ComposioSource {
       for (const x of Object.values(o)) walk(x, depth + 1);
     };
     walk(data, 0);
+  }
+
+  /** What we have seen of Stripe charges, so a refund can be named by its amount and purpose. */
+  function learnCharges(connectionId: string, data: unknown) {
+    let seen = charges.get(connectionId);
+    const visited = new Set<unknown>();
+    const walk = (v: unknown, depth: number) => {
+      if (!v || typeof v !== 'object' || depth > 7 || visited.has(v)) return;
+      visited.add(v);
+      if (Array.isArray(v)) return v.forEach((x) => walk(x, depth + 1));
+      const o = v as Record<string, unknown>;
+      if (typeof o.id === 'string' && /^ch_/.test(o.id) && typeof o.amount === 'number') {
+        if (!seen) charges.set(connectionId, (seen = new Map()));
+        seen.set(o.id, {
+          amount: o.amount,
+          currency: typeof o.currency === 'string' ? o.currency : 'usd',
+          description: typeof o.description === 'string' ? o.description : '',
+          paymentIntent: typeof o.payment_intent === 'string' ? o.payment_intent : undefined,
+        });
+      }
+      for (const x of Object.values(o)) walk(x, depth + 1);
+    };
+    walk(data, 0);
+  }
+
+  /** The charge a refund is aimed at, whether it was named by charge or by payment. */
+  function chargeFor(agentId: string | undefined, args: Record<string, unknown>): { id: string; info?: ChargeInfo } | undefined {
+    const connectionId = connectionFor('STRIPE_', agentId);
+    const seen = connectionId ? charges.get(connectionId) : undefined;
+    if (typeof args.charge === 'string' && args.charge) return { id: args.charge, info: seen?.get(args.charge) };
+    if (typeof args.payment_intent === 'string' && args.payment_intent) {
+      for (const [id, info] of seen ?? []) if (info.paymentIntent === args.payment_intent) return { id, info };
+      return { id: args.payment_intent };
+    }
+    return undefined;
   }
 
   /** Loads the channel list of a Slack connection once, so ids read as names in asks. */
@@ -301,6 +340,13 @@ export function createSource(db: Db, composio: Composio): ComposioSource {
       if (value === null || value === undefined || value === '') continue;
       out[key] = typeof value === 'string' ? value.trim() : value;
     }
+    if (toolkitOf(slug) === 'stripe' && /REFUND/.test(slug) && /CREATE/.test(slug)) {
+      // A refund is the same refund whatever reason or note was attached:
+      // what counts is which charge, and how much.
+      const target = chargeFor(agentId, args);
+      const amount = typeof args.amount === 'number' ? args.amount : target?.info?.amount;
+      return { charge: target?.id ?? null, ...(amount !== undefined ? { amount } : {}) };
+    }
     if (toolkitOf(slug) === 'slack') {
       if (typeof out.channel === 'string') out.channel = channelIdFor(agentId, out.channel) ?? out.channel.replace(/^#/, '').toLowerCase();
       const text = out.markdown_text ?? out.text;
@@ -310,6 +356,17 @@ export function createSource(db: Db, composio: Composio): ComposioSource {
       }
     }
     return out;
+  }
+
+  /** A refund in the words a person approves: how much, for what. */
+  function refundWords(slug: string, args: Record<string, unknown>, agentId?: string): string | null {
+    if (toolkitOf(slug) !== 'stripe' || !/REFUND/.test(slug) || !/CREATE/.test(slug)) return null;
+    const target = chargeFor(agentId, args);
+    const amount = typeof args.amount === 'number' ? args.amount : target?.info?.amount;
+    const sum = amount !== undefined ? money(amount, target?.info?.currency) : null;
+    const what = target?.info?.description ? ` for '${target.info.description}'` : '';
+    const partial = typeof args.amount === 'number' && target?.info && args.amount < target.info.amount ? ' (part of the charge)' : '';
+    return clip(`refund ${sum ?? 'a charge'}${what}${partial}${target ? `, charge ${target.id}` : ''}`);
   }
 
   function namesFor(agentId?: string): ChannelNames {
@@ -415,7 +472,7 @@ export function createSource(db: Db, composio: Composio): ComposioSource {
             kind: kindOf(e.tool_slug),
             args: e.arguments,
             identity: identityOf(e.tool_slug, e.arguments, ctx?.agentId),
-            summary: summarize(e.tool_slug, e.arguments, namesFor(ctx?.agentId)),
+            summary: refundWords(e.tool_slug, e.arguments, ctx?.agentId) ?? summarize(e.tool_slug, e.arguments, namesFor(ctx?.agentId)),
           };
           const connectionId = connectionFor(e.tool_slug, ctx?.agentId);
           if (connectionId) action.connectionId = connectionId;
@@ -451,6 +508,7 @@ export function createSource(db: Db, composio: Composio): ComposioSource {
           try {
             const res = await session.execute(e.tool_slug, e.arguments);
             if (toolkitOf(e.tool_slug) === 'slack') learnChannels(connection._id, res.data);
+            if (toolkitOf(e.tool_slug) === 'stripe') learnCharges(connection._id, res.data);
             return {
               tool_slug: e.tool_slug,
               arguments: e.arguments,
