@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { BotIcon, CheckIcon, ChevronRightIcon, KeyboardIcon, LoaderIcon, MicIcon, MinusIcon, ShieldAlertIcon, ShieldXIcon, XIcon } from 'lucide-react';
+import { BotIcon, CheckIcon, ChevronRightIcon, KeyboardIcon, LoaderIcon, MicIcon, MicOffIcon, MinusIcon, PhoneIcon, ShieldAlertIcon, ShieldXIcon, XIcon } from 'lucide-react';
 import {
   Confirmation, ConfirmationAction, ConfirmationActions, ConfirmationRequest, ConfirmationTitle,
 } from '@/components/ai-elements/confirmation';
@@ -11,6 +11,7 @@ import {
   PromptInput, PromptInputBody, PromptInputFooter, PromptInputSubmit, PromptInputTextarea, PromptInputTools,
 } from '@/components/ai-elements/prompt-input';
 import { Shimmer } from '@/components/ai-elements/shimmer';
+import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
@@ -54,19 +55,7 @@ export function Chat({ live, conversationId, agentId, running, onStop, fail, pro
   const items = useMemo(() => timeline(live), [live.messages, live.asks]);
   const asks = Object.values(live.asks);
   const ledger = useMemo(() => Object.values(live.ledger), [live.ledger]);
-  const voiceSlot = useRef<HTMLDivElement>(null);
-
-  // The voice service serves its own call widget; when it is down the slot stays empty.
-  useEffect(() => {
-    const slot = voiceSlot.current;
-    if (!slot) return;
-    let gone = false;
-    let ui: { leave: () => void } | null = null;
-    import(/* @vite-ignore */ VOICE_WIDGET)
-      .then(({ mountVoice }) => { if (!gone) ui = mountVoice(slot, { conversationId }); })
-      .catch(() => {});
-    return () => { gone = true; ui?.leave(); slot.innerHTML = ''; };
-  }, [conversationId]);
+  const call = useCall(conversationId);
 
   return (
     <>
@@ -90,6 +79,7 @@ export function Chat({ live, conversationId, agentId, running, onStop, fail, pro
       </Conversation>
 
       <div className="mx-auto w-full max-w-2xl px-6 pb-5">
+        {call.inCall && <CallBar call={call} />}
         <div className="flex items-end gap-2">
           <PromptInput
             className="flex-1"
@@ -109,11 +99,110 @@ export function Chat({ live, conversationId, agentId, running, onStop, fail, pro
               <PromptInputSubmit status={running ? 'streaming' : undefined} onStop={onStop} />
             </PromptInputFooter>
           </PromptInput>
-          {/* The voice track mounts its call button here. */}
-          <div id="voice-slot" ref={voiceSlot} data-conversation-id={conversationId} data-agent-id={agentId} />
+          {call.available && !call.inCall && (
+            <Button variant="outline" size="icon-lg" className="mb-0.5 shrink-0" onClick={call.join} aria-label="Start a call" title="Start a call">
+              <PhoneIcon />
+            </Button>
+          )}
         </div>
       </div>
     </>
+  );
+}
+
+interface CallState { phase: 'off' | 'connecting' | 'idle' | 'listening' | 'working' | 'speaking' | 'judging' | 'failed'; micOn: boolean; note: string }
+interface CallControl { join(): void; setMic(on: boolean): void; leave(): void; destroy(): void }
+interface Call {
+  available: boolean;
+  inCall: boolean;
+  state: CallState;
+  /** Follows the microphone level, without a render per frame. */
+  meter: React.RefObject<HTMLSpanElement | null>;
+  join(): void;
+  setMic(on: boolean): void;
+  leave(): void;
+}
+
+const NO_CALL: CallState = { phase: 'off', micOn: false, note: '' };
+
+/** The call of this conversation. The voice service runs it; when that is down there is no call button. */
+function useCall(conversationId: string): Call {
+  const [state, setState] = useState<CallState>(NO_CALL);
+  const [control, setControl] = useState<CallControl | null>(null);
+  const meter = useRef<HTMLSpanElement | null>(null);
+
+  useEffect(() => {
+    let gone = false;
+    let made: CallControl | null = null;
+    import(/* @vite-ignore */ VOICE_WIDGET)
+      .then(({ createCall }) => {
+        if (gone) return;
+        made = createCall({
+          conversationId,
+          onChange: (next: CallState) => setState(next),
+          onLevel: (level: number) => { if (meter.current) meter.current.style.transform = `scaleX(${Math.max(0.04, level)})`; },
+        }) as CallControl;
+        setControl(made);
+      })
+      .catch(() => {});
+    return () => { gone = true; made?.destroy(); setControl(null); setState(NO_CALL); };
+  }, [conversationId]);
+
+  return {
+    available: control !== null,
+    inCall: state.phase !== 'off',
+    state,
+    meter,
+    join: () => control?.join(),
+    setMic: (on) => control?.setMic(on),
+    leave: () => control?.leave(),
+  };
+}
+
+const CALL_WORDS: Record<CallState['phase'], { label: string; hint: string; dot: string }> = {
+  off: { label: '', hint: '', dot: 'bg-zinc-300' },
+  connecting: { label: 'Connecting…', hint: '', dot: 'bg-zinc-300' },
+  idle: { label: 'Microphone is off', hint: 'Turn it on to speak, or hold the space bar.', dot: 'bg-zinc-300' },
+  listening: { label: 'Listening', hint: 'Turn the microphone off to send.', dot: 'bg-emerald-500' },
+  working: { label: 'Working on it…', hint: '', dot: 'bg-amber-500' },
+  speaking: { label: 'Speaking', hint: 'Turn the microphone on to cut in.', dot: 'bg-foreground' },
+  judging: { label: 'Checking your answer…', hint: '', dot: 'bg-amber-500' },
+  failed: { label: 'The call could not start', hint: 'Leave and try again.', dot: 'bg-red-500' },
+};
+
+/** The call, above the message box: what it is doing, what it heard, the microphone, and a way out. */
+function CallBar({ call }: { call: Call }) {
+  const { phase, micOn, note } = call.state;
+  const words = CALL_WORDS[phase];
+  return (
+    <div className="mb-2 flex items-center gap-3 rounded-xl border bg-background px-3 py-2 shadow-xs">
+      <span className={cn('size-2 shrink-0 rounded-full', words.dot, (phase === 'listening' || phase === 'working' || phase === 'judging') && 'animate-pulse')} />
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-medium leading-tight">{words.label}</div>
+        <div className="truncate text-xs text-muted-foreground" title={note || words.hint}>
+          {phase === 'listening' || !note ? words.hint : note}
+        </div>
+      </div>
+      {micOn && (
+        <span className="h-1 w-12 shrink-0 overflow-hidden rounded-full bg-muted" aria-hidden>
+          <span ref={call.meter} className="block h-full origin-left rounded-full bg-emerald-500 transition-transform duration-75" style={{ transform: 'scaleX(0.04)' }} />
+        </span>
+      )}
+      <Button
+        variant={micOn ? 'default' : 'outline'}
+        size="sm"
+        disabled={phase === 'connecting' || phase === 'failed'}
+        onClick={() => call.setMic(!micOn)}
+        aria-pressed={micOn}
+        title={micOn ? 'Turn the microphone off to send' : 'Turn the microphone on to speak'}
+      >
+        {micOn ? <MicIcon /> : <MicOffIcon />}
+        {micOn ? 'Mic on' : 'Mic off'}
+      </Button>
+      <Button variant="ghost" size="sm" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={call.leave}>
+        Leave
+      </Button>
+    </div>
   );
 }
 
