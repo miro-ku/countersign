@@ -6,7 +6,7 @@ J='content-type: application/json'
 field() { node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s)$1))"; }
 wait_ask() { # waits for an open ask in the conversation, prints its id
   for i in $(seq 1 60); do
-    id=$(curl -s $B/conversations/$CID | field ".asks[0]?._id ?? ''")
+    id=$(curl -s $B/conversations/$CID | field ".asks.filter(a=>a.status==="open")[0]?._id ?? ''")
     [ -n "$id" ] && { echo $id; return; }; sleep 1
   done
 }
@@ -20,7 +20,7 @@ show() {
   curl -s $B/conversations/$CID | node -e '
 let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const r=JSON.parse(s);
 for(const m of r.messages)console.log(" msg",m.seq,m.role,m.provider||"",m.text.replace(/\n/g," ").slice(0,140));
-console.log(" open asks:",r.asks.length);
+console.log(" open asks:",r.asks.filter(a=>a.status==="open").length);
 for(const e of r.ledger.reverse())console.log(" ledger",e.seq,e.outcome,e.action,JSON.stringify(e.args),e.provider,e.decidedBy||"",JSON.stringify(e.result??"").slice(0,90));})'
 }
 

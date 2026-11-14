@@ -1,25 +1,25 @@
 import { useEffect, useMemo, useState } from 'react';
+import { BotIcon, MailIcon, MessageSquareIcon, PlusIcon, ShieldCheckIcon, SquarePenIcon, SquareIcon, WifiOffIcon, XIcon } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
-  ActionIcon, AppShell, Badge, Box, Button, Center, Group, Modal, NavLink, Notification, ScrollArea,
-  SegmentedControl, Stack, Text, Textarea, TextInput, ThemeIcon, Title, Tooltip,
-} from '@mantine/core';
-import {
-  IconBrandGmail, IconBrandSlack, IconMessagePlus, IconPlayerStopFilled, IconPlus, IconRobot,
-  IconShieldCheck, IconX, IconWifiOff,
-} from '@tabler/icons-react';
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
 import { api, cap, useConversation } from './api.ts';
 import { Chat } from './Chat.tsx';
 import { Ledger } from './Ledger.tsx';
 import { PROVIDER_LABEL, type Agent, type Connection, type Provider } from './types.ts';
 
 const TOOLKITS = [
-  { id: 'slack', label: 'Slack', icon: IconBrandSlack },
-  { id: 'gmail', label: 'Gmail', icon: IconBrandGmail },
-];
-
-const PROVIDERS = [
-  { value: 'claude-code', label: 'Claude Code' },
-  { value: 'codex', label: 'Codex' },
+  { id: 'slack', label: 'Slack', icon: MessageSquareIcon },
+  { id: 'gmail', label: 'Gmail', icon: MailIcon },
 ];
 
 // Where we are lives in the URL (and localStorage), so the app-connection
@@ -91,178 +91,166 @@ export function App() {
   const running =
     Object.values(live.executions).some((x) => x.status === 'running') ||
     Object.values(live.messages).some((m) => m.generating);
+  const stop = () => { if (conversationId) api.stop(conversationId).catch(fail); };
 
   return (
-    <AppShell
-      header={{ height: 72 }}
-      navbar={{ width: 260, breakpoint: 0 }}
-      aside={{ width: 380, breakpoint: 0 }}
-      padding={0}
-    >
-      <AppShell.Header>
-        <Group h="100%" gap={0} wrap="nowrap">
-        <Group gap="xs" w={260} px="md" wrap="nowrap" h="100%" bg="gray.0" style={{ borderRight: '1px solid var(--mantine-color-gray-3)', flexShrink: 0 }}>
-          <ThemeIcon size={38} radius="md" variant="filled"><IconShieldCheck size={22} /></ThemeIcon>
-          <Box>
-            <Text fw={800} lh={1.1}>Governed agents</Text>
-            <Text size="xs" c="dimmed">Rules that hold on any engine</Text>
-          </Box>
-        </Group>
-        <Group h="100%" px="lg" flex={1} justify="space-between" wrap="nowrap" miw={0}>
+    <div className="grid h-dvh grid-cols-[250px_minmax(0,1fr)_380px] bg-background text-foreground">
+      {/* Agents */}
+      <aside className="flex min-h-0 flex-col border-r bg-muted/40">
+        <div className="flex h-16 shrink-0 items-center gap-2.5 border-b px-4">
+          <div className="flex size-9 items-center justify-center rounded-lg bg-foreground text-background">
+            <ShieldCheckIcon className="size-5" />
+          </div>
+          <div className="leading-tight">
+            <div className="font-semibold">Governed agents</div>
+            <div className="text-xs text-muted-foreground">Rules that hold on any engine</div>
+          </div>
+        </div>
+        <div className="px-4 pt-4 pb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Agents</div>
+        <ScrollArea className="min-h-0 flex-1 px-2">
+          <div className="flex flex-col gap-0.5 pb-2">
+            {agents.map((a) => (
+              <button
+                key={a._id}
+                onClick={() => selectAgent(a)}
+                className={cn(
+                  'flex items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-accent',
+                  a._id === agentId && 'bg-background shadow-sm ring-1 ring-border',
+                )}
+              >
+                <BotIcon className="size-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">{a.name}</div>
+                  <div className="text-xs text-muted-foreground">v{a.version} · {PROVIDER_LABEL[a.defaultProvider] ?? a.defaultProvider}</div>
+                </div>
+              </button>
+            ))}
+            {agents.length === 0 && serverUp && <p className="px-2.5 py-2 text-sm text-muted-foreground">No agents yet.</p>}
+            {!serverUp && (
+              <p className="flex items-center gap-2 px-2.5 py-2 text-sm text-amber-700"><WifiOffIcon className="size-4" /> Server not answering</p>
+            )}
+          </div>
+        </ScrollArea>
+        <div className="border-t p-3">
+          <Button className="w-full" size="lg" onClick={() => setCreating(true)}><PlusIcon /> New agent</Button>
+        </div>
+      </aside>
+
+      {/* Conversation */}
+      <main className="flex min-h-0 min-w-0 flex-col">
+        <header className="flex h-16 shrink-0 items-center gap-3 border-b px-5">
           {agent && conversationId ? (
             <>
-              <Group gap="sm" wrap="nowrap" miw={220} style={{ flexShrink: 1 }}>
-                <Title order={2} size="h3" lineClamp={1}>{agent.name}</Title>
-                <Badge variant="light" color="gray" size="lg" radius="sm" ff="monospace" tt="none">v{agent.version}</Badge>
-              </Group>
-              <Group gap="xs" wrap="nowrap" style={{ flexShrink: 0 }}>
-                <SegmentedControl
-                  size="md"
-                  radius="md"
-                  color={conv?.provider === 'codex' ? 'dark' : 'orange'}
-                  disabled={!conv}
-                  value={conv?.provider ?? 'claude-code'}
-                  data={PROVIDERS}
-                  onChange={(p) => conv && p !== conv.provider && api.switchProvider(conv._id, p as Provider).catch(fail)}
-                />
-                {running && (
-                  <Button color="red" size="sm" h={40} leftSection={<IconPlayerStopFilled size={16} />} onClick={() => api.stop(conversationId).catch(fail)}>
-                    Stop
-                  </Button>
-                )}
-                <Apps agentId={agent._id} connections={Object.values(live.connections)} fail={fail} />
-                <Tooltip label="New conversation">
-                  <ActionIcon variant="default" size={40} onClick={newConversation} aria-label="New conversation">
-                    <IconMessagePlus size={20} />
-                  </ActionIcon>
-                </Tooltip>
-              </Group>
+              <div className="flex min-w-[140px] flex-1 items-center gap-2">
+                <h1 className="truncate text-lg font-semibold">{agent.name}</h1>
+                <Badge variant="outline" className="font-mono">v{agent.version}</Badge>
+              </div>
+              <Tabs
+                value={conv?.provider ?? 'claude-code'}
+                onValueChange={(p) => { if (conv && p !== conv.provider) api.switchProvider(conv._id, p as Provider).catch(fail); }}
+              >
+                <TabsList>
+                  <TabsTrigger value="claude-code" className="px-3" disabled={!conv}>Claude Code</TabsTrigger>
+                  <TabsTrigger value="codex" className="px-3" disabled={!conv}>Codex</TabsTrigger>
+                </TabsList>
+              </Tabs>
+              {running && (
+                <Button variant="destructive" size="sm" onClick={stop}><SquareIcon className="fill-current" /> Stop</Button>
+              )}
+              <Apps agentId={agent._id} connections={Object.values(live.connections)} fail={fail} />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" onClick={newConversation} aria-label="New conversation"><SquarePenIcon /></Button>
+                </TooltipTrigger>
+                <TooltipContent>New conversation</TooltipContent>
+              </Tooltip>
             </>
           ) : (
-            <Text c="dimmed" fw={600}>Create an agent to begin</Text>
+            <span className="text-sm text-muted-foreground">Create an agent to begin</span>
           )}
-        </Group>
-        </Group>
-      </AppShell.Header>
+        </header>
 
-      <AppShell.Navbar p="md" bg="gray.0">
-        <Text size="xs" fw={700} c="dimmed" tt="uppercase" mt={4} mb={8} style={{ letterSpacing: '.08em' }}>Agents</Text>
-        <ScrollArea flex={1}>
-          <Stack gap={4}>
-            {agents.map((a) => (
-              <NavLink
-                key={a._id}
-                active={a._id === agentId}
-                variant="filled"
-                onClick={() => selectAgent(a)}
-                leftSection={<IconRobot size={20} />}
-                label={<Text fw={700} truncate>{a.name}</Text>}
-                description={`v${a.version} · ${PROVIDER_LABEL[a.defaultProvider] ?? a.defaultProvider}`}
-                style={{ borderRadius: 'var(--mantine-radius-md)' }}
-              />
-            ))}
-            {agents.length === 0 && serverUp && <Text size="sm" c="dimmed">No agents yet.</Text>}
-            {!serverUp && (
-              <Group gap={6} c="orange.8"><IconWifiOff size={16} /><Text size="sm">Server not answering</Text></Group>
-            )}
-          </Stack>
-        </ScrollArea>
-        <Button mt="md" size="md" fullWidth leftSection={<IconPlus size={18} />} onClick={() => setCreating(true)}>
-          New agent
-        </Button>
-      </AppShell.Navbar>
-
-      <AppShell.Main h="100dvh" style={{ display: 'flex', flexDirection: 'column' }}>
         {notice && (
-          <Notification
-            color={notice.ok ? 'teal' : 'red'}
-            onClose={() => setNotice(null)}
-            withBorder
-            m="md"
-            mb={0}
-            title={notice.ok ? notice.text : 'Something went wrong'}
-          >
-            {notice.ok ? null : notice.text}
-          </Notification>
+          <div className={cn(
+            'mx-5 mt-3 flex items-start gap-3 rounded-lg border px-4 py-3 text-sm',
+            notice.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-red-200 bg-red-50 text-red-900',
+          )}>
+            <span className="flex-1">{notice.ok ? notice.text : `Something went wrong: ${notice.text}`}</span>
+            <button onClick={() => setNotice(null)} aria-label="Dismiss"><XIcon className="size-4" /></button>
+          </div>
         )}
+
         {agent && conversationId ? (
           <>
             {!live.online && (
-              <Group gap={6} c="orange.8" px="lg" pt="sm"><IconWifiOff size={16} /><Text size="sm" fw={600}>Reconnecting…</Text></Group>
+              <p className="flex items-center gap-2 px-5 pt-2 text-sm font-medium text-amber-700"><WifiOffIcon className="size-4" /> Reconnecting…</p>
             )}
-            <Chat live={live} conversationId={conversationId} agentId={agent._id} fail={fail} />
+            <Chat live={live} conversationId={conversationId} agentId={agent._id} running={running} onStop={stop} fail={fail} />
           </>
         ) : (
-          <Center flex={1}>
-            <Stack align="center" gap="md">
-              <ThemeIcon size={72} radius="xl" variant="light"><IconRobot size={40} /></ThemeIcon>
-              <Title order={2}>{agents.length ? 'Pick an agent' : 'No agents yet'}</Title>
-              <Text c="dimmed" size="lg">Give it a name, instructions and an engine. Its rules come with it.</Text>
-              <Button size="lg" leftSection={<IconPlus size={20} />} onClick={() => setCreating(true)}>New agent</Button>
-            </Stack>
-          </Center>
+          <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
+            <div className="flex size-16 items-center justify-center rounded-2xl bg-muted"><BotIcon className="size-8 text-muted-foreground" /></div>
+            <div className="space-y-1">
+              <h2 className="text-2xl font-semibold">{agents.length ? 'Pick an agent' : 'No agents yet'}</h2>
+              <p className="text-muted-foreground">Give it a name, instructions and an engine. Its rules come with it.</p>
+            </div>
+            <Button size="lg" onClick={() => setCreating(true)}><PlusIcon /> New agent</Button>
+          </div>
         )}
-      </AppShell.Main>
+      </main>
 
-      <AppShell.Aside bg="gray.0">
+      {/* Ledger */}
+      <aside className="flex min-h-0 flex-col border-l bg-muted/40">
         <Ledger entries={Object.values(live.ledger)} fail={fail} />
-      </AppShell.Aside>
+      </aside>
 
-      <NewAgent opened={creating} onClose={() => setCreating(false)} onCreate={createAgent} />
-    </AppShell>
+      <NewAgent open={creating} onOpenChange={setCreating} onCreate={createAgent} />
+    </div>
   );
 }
 
 function Apps({ agentId, connections, fail }: { agentId: string; connections: Connection[]; fail: (e: unknown) => void }) {
   return (
-    <Group gap="xs" wrap="nowrap">
+    <div className="flex items-center gap-2">
       {TOOLKITS.map(({ id, label, icon: Icon }) => {
         const c = connections
           .filter((x) => x.toolkit?.toLowerCase() === id && x.status !== 'revoked')
           .sort((a, b) => (a.status === 'active' ? -1 : 1) - (b.status === 'active' ? -1 : 1))[0];
         if (c?.status === 'active') {
           return (
-            <Badge
-              key={id}
-              size="xl"
-              radius="xl"
-              variant="light"
-              color="teal"
-              leftSection={<Icon size={16} />}
-              rightSection={
-                <Tooltip label={`Disconnect ${label}`}>
-                  <ActionIcon size="sm" radius="xl" variant="subtle" color="teal" onClick={() => api.disconnect(c._id).catch(fail)} aria-label={`Disconnect ${label}`}>
-                    <IconX size={14} />
-                  </ActionIcon>
-                </Tooltip>
-              }
-              tt="none"
-            >
+            <Badge key={id} variant="secondary" className="h-8 gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 pr-1 pl-2.5 text-sm text-emerald-800">
+              <span className="size-2 rounded-full bg-emerald-500" />
               {label}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button className="ml-0.5 rounded-full p-1 hover:bg-emerald-100" onClick={() => api.disconnect(c._id).catch(fail)} aria-label={`Disconnect ${label}`}>
+                    <XIcon className="size-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Disconnect {label}</TooltipContent>
+              </Tooltip>
             </Badge>
           );
         }
         return (
           <Button
             key={id}
-            variant="default"
+            variant="outline"
             size="sm"
-            h={40}
-            leftSection={<Icon size={18} />}
             onClick={async () => {
               try { location.href = (await api.connect(agentId, id)).redirectUrl; } catch (e) { fail(e); }
             }}
           >
-            {c?.status === 'pending' ? `Finish ${label}` : `Connect ${label}`}
+            <Icon /> {c?.status === 'pending' ? `Finish ${label}` : `Connect ${label}`}
           </Button>
         );
       })}
-    </Group>
+    </div>
   );
 }
 
-function NewAgent({ opened, onClose, onCreate }: {
-  opened: boolean; onClose: () => void;
+function NewAgent({ open, onOpenChange, onCreate }: {
+  open: boolean; onOpenChange: (o: boolean) => void;
   onCreate: (b: { name: string; instructions: string; defaultProvider: Provider }) => Promise<void>;
 }) {
   const [name, setName] = useState('');
@@ -277,38 +265,44 @@ function NewAgent({ opened, onClose, onCreate }: {
     setBusy(true); setError(null);
     try {
       await onCreate({ name: name.trim(), instructions, defaultProvider: provider });
-      onClose(); setName(''); setInstructions('');
+      onOpenChange(false); setName(''); setInstructions('');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally { setBusy(false); }
   };
 
   return (
-    <Modal opened={opened} onClose={onClose} title={<Text fw={800} size="xl">New agent</Text>} size="lg" centered radius="lg">
-      <form onSubmit={submit}>
-        <Stack gap="md">
-          <TextInput label="Name" size="md" data-autofocus autoComplete="off" data-1p-ignore data-lpignore="true" name="agent-title" value={name} onChange={(e) => setName(e.currentTarget.value)} placeholder="Office helper" />
-          <Textarea
-            autoComplete="off"
-            label="Instructions"
-            size="md"
-            autosize
-            minRows={5}
-            value={instructions}
-            onChange={(e) => setInstructions(e.currentTarget.value)}
-            placeholder="What it is for, and how it should behave."
-          />
-          <Box>
-            <Text size="sm" fw={500} mb={4}>Runs on</Text>
-            <SegmentedControl fullWidth size="md" value={provider} onChange={(v) => setProvider(v as Provider)} data={PROVIDERS} />
-          </Box>
-          {error && <Text c="red" size="sm">{error}</Text>}
-          <Group justify="flex-end">
-            <Button variant="default" size="md" onClick={onClose}>Cancel</Button>
-            <Button type="submit" size="md" loading={busy} disabled={!name.trim()}>Create agent</Button>
-          </Group>
-        </Stack>
-      </form>
-    </Modal>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <form onSubmit={submit} className="grid gap-5">
+          <DialogHeader>
+            <DialogTitle>New agent</DialogTitle>
+            <DialogDescription>Its rules and the ledger come with it, whichever engine runs it.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <Label htmlFor="agent-title">Name</Label>
+            <Input id="agent-title" name="agent-title" autoComplete="off" data-1p-ignore data-lpignore="true" value={name} onChange={(e) => setName(e.target.value)} placeholder="Office helper" />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="agent-instructions">Instructions</Label>
+            <Textarea id="agent-instructions" autoComplete="off" rows={5} value={instructions} onChange={(e) => setInstructions(e.target.value)} placeholder="What it is for, and how it should behave." />
+          </div>
+          <div className="grid gap-2">
+            <Label>Runs on</Label>
+            <Tabs value={provider} onValueChange={(v) => setProvider(v as Provider)}>
+              <TabsList className="w-full">
+                <TabsTrigger value="claude-code" className="flex-1">Claude Code</TabsTrigger>
+                <TabsTrigger value="codex" className="flex-1">Codex</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button type="submit" disabled={busy || !name.trim()}>{busy ? 'Creating…' : 'Create agent'}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

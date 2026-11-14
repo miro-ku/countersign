@@ -241,6 +241,7 @@ export async function handleCall(info: TokenInfo, tool: string, input: unknown, 
           $setOnInsert: {
             _id: newId(), conversationId, agentId, executionId: run?.executionId ?? null,
             fingerprint: c.fp, action: c.action.name, args: c.action.args, summary: c.action.summary,
+            connectionId: c.action.connectionId ?? null,
             status: 'open', askedByProvider: provider, answer: null, createdAt: new Date(),
           },
         },
@@ -345,6 +346,7 @@ export async function answerAsk(askId: string, a: Answer): Promise<{ ok: true; a
     executionId: done.executionId, provider: done.askedByProvider, action: action.name,
     kind: action.kind,
     args: done.args, fingerprint: done.fingerprint, outcome: approved ? 'approved' : 'declined',
+    connectionId: done.connectionId ?? null,
     decidedBy: `${by} (${answer.source}${a.verdict ? `, judge: ${a.verdict}` : ''}, ${scope})`,
   });
 

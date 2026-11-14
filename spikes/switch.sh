@@ -4,7 +4,7 @@
 B=${1:-http://localhost:4101/api}; OTHER=${2:-claude-test}
 J='content-type: application/json'
 field() { node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s)$1))"; }
-wait_ask() { for i in $(seq 1 60); do id=$(curl -s $B/conversations/$CID | field ".asks[0]?._id ?? ''"); [ -n "$id" ] && { echo $id; return; }; sleep 1; done; }
+wait_ask() { for i in $(seq 1 60); do id=$(curl -s $B/conversations/$CID | field ".asks.filter(a=>a.status==="open")[0]?._id ?? ''"); [ -n "$id" ] && { echo $id; return; }; sleep 1; done; }
 wait_idle() { sleep 2; for i in $(seq 1 120); do g=$(curl -s $B/conversations/$CID | field ".messages.some(m=>m.generating)"); [ "$g" = false ] && return; sleep 1; done; }
 say() { curl -s -XPOST $B/conversations/$CID/messages -H "$J" -d "{\"text\":\"$1\",\"source\":\"text\"}" > /dev/null; }
 switch() { curl -s -XPOST $B/conversations/$CID/provider -H "$J" -d "{\"provider\":\"$1\"}" > /dev/null; }
@@ -13,7 +13,7 @@ show() {
   curl -s $B/conversations/$CID | node -e '
 let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const r=JSON.parse(s);
 for(const m of r.messages)console.log(" msg",m.seq,m.role,m.provider||"",m.text.replace(/\n/g," ").slice(0,150));
-console.log(" open asks:",r.asks.length);
+console.log(" open asks:",r.asks.filter(a=>a.status==="open").length);
 for(const e of r.ledger.reverse())console.log(" ledger",e.seq,e.outcome,e.action,JSON.stringify(e.args),e.provider,e.decidedBy||"");})'
   curl -s "$B/conversations/$CID" > /dev/null
 }

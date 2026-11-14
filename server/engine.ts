@@ -12,6 +12,12 @@ const IDLE_MS = 15 * 60 * 1000;
 const STREAM_THROTTLE_MS = 200;
 const PERSON = 'Miro';
 
+/** Added to every agent's instructions: how a turn is delivered. */
+export const DELIVERY_NOTE =
+  'How messages reach you: each turn arrives as lines tagged with who wrote them, such as [Miro], [Event], ' +
+  '[Reply you gave on …] and [System]. The tags are only how the conversation is delivered to you, never part of ' +
+  'what anyone said. Never mention, repeat or explain them. Answer the person directly and briefly.';
+
 const STOP_NOTE =
   '[System] The previous turn was stopped part-way through by the person. A tool call still running then never returned: call it again if it is still needed.';
 
@@ -98,26 +104,36 @@ interface Running {
   key: string;
   /** How the turn is being ended early, if it is. */
   ending: 'stopped' | 'handed_off' | null;
+  /** The provider it was handed to. */
+  handedTo?: string;
 }
 
 const running = new Map<string, Running>();
 const pending = new Set<string>();
+const looping = new Set<string>();
 
 /** Starts a turn if none is running; otherwise the waiting messages become the next turn. */
 export function kick(conversationId: string) {
   pending.add(conversationId);
-  if (running.has(conversationId)) return;
   void loop(conversationId);
 }
 
+// One loop per conversation runs its turns one after another; every path that
+// starts a turn (a message, a switch, a late approval) only marks it pending.
 async function loop(conversationId: string) {
-  while (pending.has(conversationId) && !running.has(conversationId)) {
-    pending.delete(conversationId);
-    try {
-      await runTurn(conversationId);
-    } catch (err) {
-      console.error('turn failed:', err);
+  if (looping.has(conversationId)) return;
+  looping.add(conversationId);
+  try {
+    while (pending.has(conversationId)) {
+      pending.delete(conversationId);
+      try {
+        await runTurn(conversationId);
+      } catch (err) {
+        console.error('turn failed:', err);
+      }
     }
+  } finally {
+    looping.delete(conversationId);
   }
 }
 
@@ -142,10 +158,17 @@ async function runTurn(conversationId: string) {
   const run: Running = { executionId, provider: p, key, ending: null };
   running.set(conversationId, run);
 
-  await col.executions.insertOne({
+  try {
+    await col.executions.insertOne({
     _id: executionId, conversationId, triggerMessageId: trigger._id, provider: p, model: null,
     status: 'running', providerSessionId: null, startedAt: new Date(), endedAt: null, error: null,
-  });
+    });
+  } catch (err: any) {
+    running.delete(conversationId);
+    // The unique index on running executions: another process has a turn going.
+    if (err?.code === 11000) return;
+    throw err;
+  }
 
   const reply = await insertMessage({
     conversationId, role: 'agent', text: '', source: 'text', provider: p, model: undefined,
@@ -153,6 +176,10 @@ async function runTurn(conversationId: string) {
   });
 
   const finish = async (status: 'completed' | 'stopped' | 'failed' | 'handed_off', text: string, steps: Step[], error?: string, sessionId?: string | null, model?: string | null) => {
+    if (status !== 'completed') {
+      const reason = status === 'stopped' ? 'stopped' : status === 'handed_off' ? `moved to ${run.handedTo ?? 'another provider'}` : 'the turn failed';
+      steps = closeOpenTools(steps, reason);
+    }
     await col.messages.updateOne({ _id: reply._id }, { $set: { text, steps, generating: false, ...(model ? { model } : {}) } });
     await col.executions.updateOne(
       { _id: executionId },
@@ -194,7 +221,7 @@ async function runTurn(conversationId: string) {
       const token = mintToken({ agentId: agent._id, conversationId, provider: p as Provider });
       const session = await driver.start({
         conversationId,
-        systemPrompt: agent.instructions,
+        systemPrompt: `${agent.instructions.trim()}\n\n${DELIVERY_NOTE}`,
         resumeSessionId: rec?.sessionId,
         mcp: { name: 'gateway', url: `http://127.0.0.1:${PORT}/mcp/${token}` },
         cwd: scratchDir(conversationId),
@@ -310,6 +337,7 @@ export async function switchProvider(conversationId: string, provider: string): 
   if (run && run.provider !== provider) {
     // Open asks stay open; the next turn runs on the new provider.
     run.ending = 'handed_off';
+    run.handedTo = provider;
     releaseHeldCalls(conversationId, run.provider, 'moved');
     await warm.get(run.key)?.session.interrupt();
     // The new provider carries on from where the old one was cut off.
@@ -323,3 +351,15 @@ whenLateApproval((ask) => {
   void insertMessage({ conversationId: ask.conversationId, role: 'event', text: `Approved: ${ask.summary}`, source: 'text' })
     .then(() => kick(ask.conversationId));
 });
+
+/** Gives every tool request without a response a closing error response. */
+export function closeOpenTools(steps: Step[], reason: string): Step[] {
+  const answered = new Set(steps.flatMap((st) => ('toolResponse' in st ? [st.toolResponse.ref] : [])));
+  const closed = [...steps];
+  for (const st of steps) {
+    if ('toolRequest' in st && !answered.has(st.toolRequest.ref)) {
+      closed.push({ toolResponse: { ref: st.toolRequest.ref, name: st.toolRequest.name, output: reason, isError: true } });
+    }
+  }
+  return closed;
+}

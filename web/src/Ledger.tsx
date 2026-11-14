@@ -1,12 +1,22 @@
 import { useState } from 'react';
-import { Badge, Box, Button, Code, Collapse, Group, Paper, ScrollArea, Stack, Table, Text, UnstyledButton } from '@mantine/core';
-import { IconArrowBackUp, IconBook2 } from '@tabler/icons-react';
+import { ChevronDownIcon, ScrollTextIcon, Undo2Icon } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { cn } from '@/lib/utils';
 import { api, cap, pretty } from './api.ts';
 import { PROVIDER_LABEL, type LedgerRow } from './types.ts';
 
-const OUTCOME_COLOR: Record<string, string> = {
-  allowed: 'teal', approved: 'teal', executed: 'green',
-  asked: 'yellow', declined: 'red', denied: 'red', failed: 'red', undone: 'gray',
+/** One colour per outcome: green went ahead, amber waits, red stopped, grey reversed. */
+const OUTCOME: Record<string, { pill: string; edge: string }> = {
+  allowed: { pill: 'bg-emerald-100 text-emerald-800', edge: 'border-l-emerald-500' },
+  approved: { pill: 'bg-emerald-100 text-emerald-800', edge: 'border-l-emerald-500' },
+  executed: { pill: 'bg-green-600 text-white', edge: 'border-l-green-600' },
+  asked: { pill: 'bg-amber-100 text-amber-800', edge: 'border-l-amber-500' },
+  declined: { pill: 'bg-red-100 text-red-800', edge: 'border-l-red-500' },
+  denied: { pill: 'bg-red-600 text-white', edge: 'border-l-red-600' },
+  failed: { pill: 'bg-red-100 text-red-800', edge: 'border-l-red-500' },
+  undone: { pill: 'bg-zinc-200 text-zinc-700', edge: 'border-l-zinc-400' },
 };
 
 const clock = (s: string) =>
@@ -16,73 +26,78 @@ export function Ledger({ entries, fail }: { entries: LedgerRow[]; fail: (e: unkn
   const rows = [...entries].sort((a, b) => b.seq - a.seq || Date.parse(b.at) - Date.parse(a.at));
   const undone = new Set(entries.map((e) => e.undoOf).filter(Boolean));
   return (
-    <Stack h="100%" gap={0}>
-      <Group px="md" pt="md" pb="sm" gap="xs">
-        <IconBook2 size={20} />
-        <Text fw={800}>Ledger</Text>
-        <span className="live-dot" />
-        <Text size="xs" c="dimmed" ml="auto">every tool call, as it happens</Text>
-      </Group>
-      <ScrollArea flex={1} px="md">
-        {rows.length === 0 && <Text c="dimmed" size="sm" mt="sm">Nothing yet. Each tool call the agent makes, and each answer you give, lands here.</Text>}
-        <Stack gap={8} pb="md">
+    <>
+      <div className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
+        <ScrollTextIcon className="size-5" />
+        <span className="font-semibold">Ledger</span>
+        <span className="relative ml-1 flex size-2">
+          <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+          <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
+        </span>
+        <span className="ml-auto text-xs text-muted-foreground">every tool call, live</span>
+      </div>
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="flex flex-col gap-2 p-3">
+          {rows.length === 0 && (
+            <p className="p-2 text-sm text-muted-foreground">Nothing yet. Each tool call the agent makes, and each answer you give, lands here.</p>
+          )}
           {rows.map((e) => (
             <Row key={e._id} e={e} canUndo={e.undoable && !undone.has(e._id) && e.outcome !== 'undone'} fail={fail} />
           ))}
-        </Stack>
+        </div>
       </ScrollArea>
-    </Stack>
+    </>
   );
 }
 
 function Row({ e, canUndo, fail }: { e: LedgerRow; canUndo: boolean; fail: (e: unknown) => void }) {
-  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const color = OUTCOME_COLOR[e.outcome] ?? 'gray';
+  const style = OUTCOME[e.outcome] ?? OUTCOME.undone;
   return (
-    <Paper withBorder radius="md" className="ledger-row" style={{ borderLeft: `4px solid var(--mantine-color-${color}-6)` }}>
-      <UnstyledButton w="100%" px="sm" py={8} onClick={() => setOpen(!open)}>
-        <Group gap={8} wrap="nowrap">
-          <Badge color={color} variant="light" radius="sm" size="md" w={92} style={{ flexShrink: 0 }}>{e.outcome}</Badge>
-          <Text ff="monospace" size="sm" fw={700} truncate flex={1}>{e.action.replace(/^mcp__gateway__/, '')}</Text>
-          <Text ff="monospace" size="xs" c="dimmed">{clock(e.at)}</Text>
-        </Group>
-        <Group gap={6} mt={4} wrap="nowrap">
-          <Text size="xs" c="dimmed">{PROVIDER_LABEL[e.provider] ?? e.provider}</Text>
-          {e.decidedBy && <Text size="xs" c="dimmed" truncate>· {cap(e.decidedBy)}</Text>}
+    <Collapsible className={cn('ledger-arrive group rounded-lg border border-l-4 bg-card shadow-xs', style.edge)}>
+      <CollapsibleTrigger className="w-full px-3 py-2.5 text-left">
+        <div className="flex items-center gap-2">
+          <span className={cn('w-[86px] shrink-0 rounded-md px-2 py-0.5 text-center text-xs font-semibold uppercase tracking-wide', style.pill)}>
+            {e.outcome}
+          </span>
+          <span className="min-w-0 flex-1 truncate font-mono text-sm font-medium">{e.action.replace(/^mcp__gateway__/, '')}</span>
+          <span className="font-mono text-xs text-muted-foreground">{clock(e.at)}</span>
+          <ChevronDownIcon className="size-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+        </div>
+        <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span>{PROVIDER_LABEL[e.provider] ?? e.provider}</span>
+          {e.decidedBy && <span className="truncate">· {cap(e.decidedBy)}</span>}
           {canUndo && (
             <Button
-              component="span"
-              ml="auto"
-              size="compact-xs"
-              variant="light"
-              leftSection={<IconArrowBackUp size={13} />}
-              loading={busy}
+              asChild
+              size="xs"
+              variant="outline"
+              className="ml-auto h-6"
               onClick={async (ev: React.MouseEvent) => {
                 ev.stopPropagation(); setBusy(true);
                 try { await api.undo(e._id); } catch (err) { fail(err); } finally { setBusy(false); }
               }}
             >
-              Undo
+              <span role="button" aria-disabled={busy}><Undo2Icon /> Undo</span>
             </Button>
           )}
-        </Group>
-      </UnstyledButton>
-      <Collapse expanded={open}>
-        <Box px="sm" pb="sm">
-          <Table fz="xs" verticalSpacing={4} withRowBorders={false}>
-            <Table.Tbody>
-              <Table.Tr><Table.Th w={90}>Arguments</Table.Th><Table.Td><Code block>{pretty(e.args)}</Code></Table.Td></Table.Tr>
-              <Table.Tr><Table.Th>Rule</Table.Th><Table.Td>{e.ruleId ?? '—'}</Table.Td></Table.Tr>
-              <Table.Tr><Table.Th>Agent</Table.Th><Table.Td>v{e.agentVersion}</Table.Td></Table.Tr>
-              <Table.Tr><Table.Th>Connection</Table.Th><Table.Td>{e.connectionId ?? '—'}</Table.Td></Table.Tr>
-              {e.result !== undefined && e.result !== null && (
-                <Table.Tr><Table.Th>Result</Table.Th><Table.Td><Code block mah={180} style={{ overflow: 'auto' }}>{pretty(e.result)}</Code></Table.Td></Table.Tr>
-              )}
-            </Table.Tbody>
-          </Table>
-        </Box>
-      </Collapse>
-    </Paper>
+        </div>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <dl className="grid grid-cols-[88px_1fr] gap-x-3 gap-y-1.5 border-t px-3 py-2.5 text-xs">
+          <dt className="text-muted-foreground">Arguments</dt>
+          <dd><pre className="max-h-40 overflow-auto rounded bg-muted p-2 font-mono whitespace-pre-wrap break-all">{pretty(e.args)}</pre></dd>
+          <dt className="text-muted-foreground">Rule</dt><dd>{e.ruleId ?? '—'}</dd>
+          <dt className="text-muted-foreground">Agent</dt><dd>v{e.agentVersion}</dd>
+          <dt className="text-muted-foreground">Connection</dt><dd className="break-all">{e.connectionId ?? '—'}</dd>
+          {e.result != null && (
+            <>
+              <dt className="text-muted-foreground">Result</dt>
+              <dd><pre className="max-h-40 overflow-auto rounded bg-muted p-2 font-mono whitespace-pre-wrap break-all">{pretty(e.result)}</pre></dd>
+            </>
+          )}
+        </dl>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }

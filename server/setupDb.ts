@@ -81,7 +81,11 @@ const indexes: Record<string, Array<[Record<string, 1 | -1>, Record<string, unkn
   rules: [[{ agentId: 1 }]],
   conversations: [[{ agentId: 1, createdAt: -1 }]],
   messages: [[{ conversationId: 1, seq: 1 }, { unique: true }]],
-  executions: [[{ conversationId: 1, startedAt: -1 }]],
+  executions: [
+    [{ conversationId: 1, startedAt: -1 }],
+    // One turn at a time per conversation, even across server processes.
+    [{ conversationId: 1 }, { unique: true, partialFilterExpression: { status: 'running' }, name: 'one_running_turn' }],
+  ],
   asks: [
     [{ conversationId: 1, fingerprint: 1 }, { unique: true, partialFilterExpression: { status: 'open' }, name: 'one_open_ask_per_action' }],
     [{ conversationId: 1, status: 1 }],

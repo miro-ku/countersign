@@ -2,7 +2,8 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { client, col } from './db.js';
 import { startChangeStreams, stopChangeStreams } from './changes.js';
-import { closeAllSessions, registerDriver } from './engine.js';
+import { closeAllSessions, closeOpenTools, registerDriver } from './engine.js';
+import type { Step } from '../shared/types.js';
 import { registerGateway } from './gateway/index.js';
 import { createApi } from './api.js';
 import { claudeCodeDriver } from './providers/claudeCode.js';
@@ -18,13 +19,18 @@ if (process.env.TEST_PROVIDER) registerDriver(claudeCodeDriver, process.env.TEST
 await client.connect();
 startChangeStreams();
 
-// Turns cut off by a restart: their sessions are gone, so close them.
+// Turns cut off by a restart: nothing is behind them any more, so close them.
 const endedAt = new Date();
 const cut = await col.executions.updateMany(
   { status: 'running' },
-  { $set: { status: 'failed', endedAt, error: 'The server restarted during this turn.' } },
+  { $set: { status: 'failed', endedAt, error: 'the server restarted' } },
 );
-await col.messages.updateMany({ generating: true }, { $set: { generating: false } });
+for (const reply of await col.messages.find({ generating: true }).toArray()) {
+  await col.messages.updateOne(
+    { _id: reply._id },
+    { $set: { generating: false, steps: closeOpenTools(reply.steps as Step[], 'the server restarted') } },
+  );
+}
 if (cut.modifiedCount) console.log(`closed ${cut.modifiedCount} turn(s) cut off by a restart`);
 
 const app = new Hono();
@@ -37,9 +43,13 @@ const server = serve({ fetch: app.fetch, port: PORT, hostname: '0.0.0.0' }, () =
   if (!process.env.COMPOSIO_API_KEY) console.log('COMPOSIO_API_KEY is not set: app connections are off.');
 });
 
+let shuttingDown = false;
 async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
   stopChangeStreams();
-  await closeAllSessions();
+  // Every provider process goes with the server; don't wait long for them.
+  await Promise.race([closeAllSessions(), new Promise((r) => setTimeout(r, 2000))]);
   server.close();
   await client.close().catch(() => {});
   process.exit(0);

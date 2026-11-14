@@ -7,6 +7,12 @@ import { EventQueue } from './queue.js';
 
 const CLAUDE_BIN = process.env.CLAUDE_BIN || '/Users/mirik/.local/bin/claude';
 
+// Every CLI process still running dies with the server, however it exits.
+const children = new Set<ChildProcessWithoutNullStreams>();
+process.on('exit', () => {
+  for (const child of children) child.kill('SIGTERM');
+});
+
 export function claudeArgs(o: ProviderStart): string[] {
   const mcpConfig = { mcpServers: { [o.mcp.name]: { type: 'http', url: o.mcp.url } } };
   const args = [
@@ -45,12 +51,14 @@ class ClaudeCodeSession implements ProviderSession {
       env: { ...process.env, MCP_TOOL_TIMEOUT: '300000' },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    children.add(this.child);
     createInterface({ input: this.child.stdout }).on('line', (line) => this.onLine(line));
     this.child.stderr.on('data', (chunk) => {
       this.stderr = (this.stderr + chunk.toString()).slice(-4000);
     });
     this.child.on('exit', (code) => {
       this.exited = true;
+      children.delete(this.child);
       // A turn that was running never gets its result: end it here.
       this.queue.push({
         type: 'turn-ended', interrupted: this.interrupting, text: this.turnText,

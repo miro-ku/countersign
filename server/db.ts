@@ -90,6 +90,7 @@ export interface AskDoc {
   action: string;
   args: unknown;
   summary: string;
+  connectionId?: string | null;
   status: 'open' | 'approved' | 'declined' | 'replied' | 'stopped';
   askedByProvider: string;
   answer: {

@@ -239,7 +239,7 @@ approval unless the voice judge returned `yes`.
 
 - `POST /api/agents` `{ name, instructions, defaultProvider }`; `GET /api/agents`; `GET /api/agents/:id`; `PATCH /api/agents/:id` (new instructions → new version)
 - `GET /api/agents/:id/connections`; `POST /api/agents/:id/connections` `{ toolkit }` → `{ redirectUrl }`; `GET /api/agents/:id/connect/:toolkit` (starts the connection and redirects straight to the authorization page, so a plain link works); `GET /api/connections/callback` (Composio returns here, then redirects to the page); `DELETE /api/connections/:id`
-- `POST /api/conversations` `{ agentId }`; `GET /api/conversations?agentId=` (newest 50); `GET /api/conversations/:id` (conversation, messages, open asks, last 100 ledger entries)
+- `POST /api/conversations` `{ agentId }`; `GET /api/conversations?agentId=` (newest 50); `GET /api/conversations/:id` (conversation, messages, the conversation's asks of every status, oldest first, last 100 ledger entries)
 - `POST /api/conversations/:id/messages` `{ text, source }` → `202`
 - `POST /api/conversations/:id/provider` `{ provider }`; `POST /api/conversations/:id/stop`
 - `POST /api/asks/:id/answer` `{ answer: 'approve'|'decline', scope: 'once'|'conversation', source: 'button'|'voice', transcript?, verdict? }`

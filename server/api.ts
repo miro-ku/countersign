@@ -82,7 +82,7 @@ export function createApi(): Hono {
     if (!conversation) return c.json({ error: 'not found' }, 404);
     const [messages, asks, ledger] = await Promise.all([
       col.messages.find({ conversationId: id }).sort({ seq: 1 }).toArray(),
-      col.asks.find({ conversationId: id, status: 'open' }).sort({ createdAt: 1 }).toArray(),
+      col.asks.find({ conversationId: id }).sort({ createdAt: 1 }).toArray(),
       col.ledger.find({ conversationId: id }).sort({ seq: -1 }).limit(100).toArray(),
     ]);
     return c.json({ conversation, messages, asks, ledger });
