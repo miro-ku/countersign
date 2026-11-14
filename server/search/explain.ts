@@ -124,7 +124,7 @@ async function explainMessage(db: Db, m: any) {
   facts.push(
     m.role === 'user'
       ? `The person ${m.source === 'voice' ? 'said aloud' : 'wrote'} at ${spokenTime(m.at)}: "${clip(m.text, 800)}".`
-      : `The agent replied on ${prov(m.provider)}${m.model ? ` (${m.model})` : ''} at ${spokenTime(m.at)}: "${clip(m.text, 800)}".`,
+      : `The agent replied on ${prov(m.provider)}${m.model ? ` (${m.model})` : ''} at ${spokenTime(m.endedAt ?? m.at)}: "${clip(m.text, 800)}".`,
   );
   const executions = await db.collection<any>('executions').find({ triggerMessageId: m._id }).project({ _id: 1 }).toArray();
   const ids = executions.map((e) => e._id).concat(m.executionId ? [m.executionId] : []);

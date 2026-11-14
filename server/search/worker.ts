@@ -52,7 +52,7 @@ export async function recordMessage(db: Db, m: any): Promise<void> {
     { _id: m._id },
     {
       $set: {
-        kind: 'message', agentId, conversationId: m.conversationId, at: m.at, role: m.role,
+        kind: 'message', agentId, conversationId: m.conversationId, at: m.endedAt ?? m.at, role: m.role,
         provider: m.provider ?? null, text: describeMessage(m),
       },
     },

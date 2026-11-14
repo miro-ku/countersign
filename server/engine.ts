@@ -181,7 +181,7 @@ async function runTurn(conversationId: string) {
       const reason = status === 'stopped' ? 'stopped' : status === 'handed_off' ? `moved to ${run.handedTo ?? 'another provider'}` : 'the turn failed';
       steps = closeOpenTools(steps, reason);
     }
-    await col.messages.updateOne({ _id: reply._id }, { $set: { text, steps, generating: false, ...(model ? { model } : {}) } });
+    await col.messages.updateOne({ _id: reply._id }, { $set: { text, steps, generating: false, endedAt: new Date(), ...(model ? { model } : {}) } });
     await col.executions.updateOne(
       { _id: executionId },
       { $set: { status, endedAt: new Date(), error: error ?? null, ...(model ? { model } : {}), ...(sessionId ? { providerSessionId: sessionId } : {}) } },

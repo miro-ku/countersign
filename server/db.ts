@@ -70,6 +70,8 @@ export interface MessageDoc {
   generating: boolean;
   steps: unknown[];
   at: Date;
+  /** When an agent reply was finished; `at` is when its turn opened it. */
+  endedAt?: Date;
 }
 
 export interface ExecutionDoc {
