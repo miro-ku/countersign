@@ -41,7 +41,20 @@ const validators: Record<string, object> = {
   }),
   rules: schema(['_id', 'agentId', 'match', 'effect'], {
     _id: str, agentId: strOrNull,
-    match: { bsonType: 'object', properties: { action: str, kind, actionPattern: str, argsPattern: str } },
+    match: {
+      bsonType: 'object',
+      properties: {
+        action: str, kind, actionPattern: str, argsPattern: str,
+        conditions: {
+          bsonType: 'array',
+          items: {
+            bsonType: 'object',
+            required: ['field', 'op', 'value'],
+            properties: { field: str, op: { enum: ['eq', 'neq', 'gte', 'lte', 'contains', 'matches'] } },
+          },
+        },
+      },
+    },
     effect: { enum: ['allow', 'ask', 'deny'] }, reason: str,
   }),
   conversations: schema(

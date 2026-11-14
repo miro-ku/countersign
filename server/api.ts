@@ -1,12 +1,12 @@
 import { createHash } from 'node:crypto';
-import { drawAvatar, nameConversation, transcribe } from './assist.js';
+import { compileRule, drawAvatar, nameConversation, transcribe } from './assist.js';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { col, db, newId, OWNER_ID } from './db.js';
 import { changes, conversationOf, type ChangeKind } from './changes.js';
 import { knownProviders, postMessage, stopTurn, switchProvider } from './engine.js';
 import { answerAsk, undoLedgerEntry } from './gateway/index.js';
-import { rulesFor } from './gateway/rules.js';
+import { checkRule, rulesFor } from './gateway/rules.js';
 import { registerConnectionRoutes } from './integrations/index.js';
 import { registerSearchRoutes } from './search/index.js';
 
@@ -139,11 +139,38 @@ export function createApi(): Hono {
     return result.ok ? c.json(result.entry) : c.json({ error: result.error }, result.status as 400);
   });
 
-  // ── Rules (read-only today) ──
+  // ── Rules ──
   // With ?agentId=, the rules that apply to that agent, in the order they are applied.
   api.get('/rules', async (c) => {
     const agentId = c.req.query('agentId');
     return c.json(agentId ? await rulesFor(agentId) : await col.rules.find({}).toArray());
+  });
+
+  // A rule for one agent, written as a sentence. The database validates what is stored.
+  api.post('/agents/:id/rules', async (c) => {
+    const agent = await col.agents.findOne({ _id: c.req.param('id') });
+    if (!agent) return c.json({ error: 'not found' }, 404);
+    const body = await c.req.json().catch(() => ({}));
+    const text = String(body.text ?? '').trim();
+    if (!text) return c.json({ error: 'Say what the rule is.' }, 400);
+    try {
+      const compiled = await compileRule(text);
+      const rule = {
+        _id: newId(), agentId: agent._id, match: compiled.match as any, effect: compiled.effect,
+        title: compiled.title, reason: compiled.reason, source: text, createdBy: OWNER_ID, createdAt: new Date(),
+      };
+      checkRule(rule);
+      await col.rules.insertOne(rule);
+      return c.json(rule, 201);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : 'The rule could not be saved.' }, 400);
+    }
+  });
+
+  // Only an agent's own rules can be removed; the defaults stay.
+  api.delete('/rules/:id', async (c) => {
+    const removed = await col.rules.findOneAndDelete({ _id: c.req.param('id'), agentId: { $ne: null } });
+    return removed ? c.json({ ok: true }) : c.json({ error: 'Only a rule made for this agent can be removed.' }, 404);
   });
 
   // ── Event stream ──

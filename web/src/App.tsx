@@ -362,10 +362,28 @@ function matchWords(r: Rule): string {
 function Rules({ agentId }: { agentId: string }) {
   const [rules, setRules] = useState<Rule[] | null>(null);
   const [open, setOpen] = useState(false);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const load = () => api.rules(agentId).then(setRules).catch(() => setRules([]));
   useEffect(() => {
-    if (!open) return;
-    api.rules(agentId).then(setRules).catch(() => setRules([]));
+    if (open) void load();
   }, [agentId, open]);
+  const add = async () => {
+    const sentence = text.trim();
+    if (!sentence || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.addRule(agentId, sentence);
+      setText('');
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'The rule could not be added.');
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -383,12 +401,36 @@ function Rules({ agentId }: { agentId: string }) {
               <div className="flex items-baseline gap-2">
                 <span className={cn('w-10 shrink-0 text-xs font-semibold', EFFECT_TONE[r.effect])}>{r.effect}</span>
                 <span className={cn('min-w-0 truncate text-[13px]', r.match.action && 'font-mono')} title={r.match.actionPattern ?? r.match.argsPattern}>{matchWords(r)}</span>
-                {r.agentId == null && <span className="ml-auto shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">default</span>}
+                {r.agentId == null
+                  ? <span className="ml-auto shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">default</span>
+                  : (
+                    <button
+                      className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                      aria-label="Remove this rule" title="Remove this rule"
+                      onClick={() => api.removeRule(r._id).then(load).catch(() => {})}
+                    >
+                      <XIcon className="size-3" />
+                    </button>
+                  )}
               </div>
               <p className="ml-12 text-xs text-muted-foreground">{r.reason}</p>
             </li>
           ))}
         </ol>
+        <form className="border-t p-2" onSubmit={(e) => { e.preventDefault(); void add(); }}>
+          <div className="flex items-center gap-2">
+            <Input
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Add a rule in plain words…"
+              aria-label="A new rule, in plain words"
+              className="h-8 text-xs"
+              disabled={busy}
+            />
+            <Button type="submit" size="sm" disabled={busy || !text.trim()}>{busy ? 'Adding…' : 'Add'}</Button>
+          </div>
+          {error && <p className="mt-1.5 text-xs text-red-700">{error}</p>}
+        </form>
       </PopoverContent>
     </Popover>
   );

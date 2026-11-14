@@ -126,9 +126,26 @@ export interface RuleDoc {
   _id: string;
   agentId: string | null;
   /** Every field present must match: `action` exactly, the patterns as case-insensitive regular expressions. */
-  match: { action?: string; kind?: 'read' | 'write'; actionPattern?: string; argsPattern?: string };
+  match: {
+    action?: string; kind?: 'read' | 'write'; actionPattern?: string; argsPattern?: string;
+    /** Tests on the action's own fields, such as amount >= 5000. Every one must hold. */
+    conditions?: RuleCondition[];
+  };
   effect: 'allow' | 'ask' | 'deny';
+  /** What the rule covers, in plain words. */
+  title?: string;
   reason: string;
+  /** The sentence a person wrote, when the rule was made from one. */
+  source?: string;
+  createdBy?: string;
+  createdAt?: Date;
+}
+
+export interface RuleCondition {
+  /** The name of a field of the action, at any depth: amount, channel, recipient_email. */
+  field: string;
+  op: 'eq' | 'neq' | 'gte' | 'lte' | 'contains' | 'matches';
+  value: string | number;
 }
 
 export interface ConnectionDoc {

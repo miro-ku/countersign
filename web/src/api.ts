@@ -47,6 +47,8 @@ export const api = {
   },
   latestConversation: async (agentId: string) => (await api.listConversations(agentId))[0] ?? null,
   /** The rules that apply to an agent, in order. Falls back to the full list while the filtered one is missing. */
+  addRule: (agentId: string, text: string) => call<Rule>('POST', `/api/agents/${agentId}/rules`, { text }),
+  removeRule: (id: string) => call('DELETE', `/api/rules/${id}`),
   rules: async (agentId: string): Promise<Rule[]> => {
     try {
       const d = await call<any>('GET', `/api/rules?agentId=${agentId}`);
