@@ -25,10 +25,22 @@ export function actionWords(action: string): string {
     notes_list: 'read the notes',
     record_search: 'search its own record',
     record_explain: 'look up the story of a past action',
-    COMPOSIO_SEARCH_TOOLS: 'look for app tools',
-    COMPOSIO_GET_TOOL_SCHEMAS: 'read app tool details',
+    COMPOSIO_SEARCH_TOOLS: 'look up which app tools exist (nothing sent)',
+    COMPOSIO_GET_TOOL_SCHEMAS: 'read app tool details (nothing sent)',
   };
   if (own[action]) return own[action];
+  // The verbs people search with.
+  const verbs: Array<[RegExp, string]> = [
+    [/_SEND_MESSAGE$|_POST_MESSAGE$|_CHAT_POST/, 'post a message'],
+    [/_SEND_EMAIL$|_SEND_MAIL$/, 'send an email'],
+    [/_REPLY/, 'reply'],
+  ];
+  for (const [re, verb] of verbs) {
+    if (re.test(action)) {
+      const app = action.split('_')[0].toLowerCase();
+      return `${app[0].toUpperCase()}${app.slice(1)}: ${verb}`;
+    }
+  }
   const parts = action.toLowerCase().split('_').filter(Boolean);
   if (parts.length < 2) return action;
   const app = parts[0][0].toUpperCase() + parts[0].slice(1);
@@ -95,6 +107,8 @@ export async function describeEntry(db: Db, e: EntryLike): Promise<string> {
   } else if (e.outcome === 'denied') {
     const reason = e.result?.reason ? String(e.result.reason) : '';
     who = reason ? `refused: ${reason}` : 'refused';
+  } else if (e.outcome === 'asked') {
+    who = `held while the person was asked (rule ${e.ruleId ?? 'none'})`;
   } else if (e.ruleId) {
     who = `allowed by the rule ${e.ruleId}`;
   } else if (e.outcome === 'executed' || e.outcome === 'failed') {
@@ -106,8 +120,6 @@ export async function describeEntry(db: Db, e: EntryLike): Promise<string> {
       .limit(1)
       .next();
     if (approval) who = `approved by ${decider(approval.decidedBy)}`;
-  } else if (e.outcome === 'asked') {
-    who = 'waiting for the person to answer';
   }
   const what = [actionWords(e.action), argumentWords(e.args)].filter(Boolean).join(' ');
   const summary = ask?.summary && !what.includes(ask.summary) ? ` (${clip(String(ask.summary), 200)})` : '';

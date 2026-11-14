@@ -24,6 +24,19 @@ const clock = (s: string) =>
 /** "miro (button, conversation)" reads as "Miro"; the detail is in the expanded row. */
 const who = (s?: string) => (s ? cap(s.split(' (')[0]) : null);
 
+const reasonOf = (e: LedgerRow): string | null => {
+  const r = e.result as { reason?: unknown } | null | undefined;
+  return r && typeof r === 'object' && typeof r.reason === 'string' ? r.reason : null;
+};
+
+/** What the outcome word says: a denial names what stopped it. */
+function outcomeWords(e: LedgerRow): string {
+  if (e.outcome !== 'denied') return e.outcome;
+  if (e.ruleId) return 'denied by rule';
+  if (/asked and said no/i.test(reasonOf(e) ?? '')) return 'denied: rejected earlier by Miro';
+  return 'denied';
+}
+
 export function Ledger({ entries, fail }: { entries: LedgerRow[]; fail: (e: unknown) => void }) {
   const rows = [...entries].sort((a, b) => b.seq - a.seq || Date.parse(b.at) - Date.parse(a.at));
   const undone = new Set(entries.map((e) => e.undoOf).filter(Boolean));
@@ -65,7 +78,7 @@ function Row({ e, canUndo, fail }: { e: LedgerRow; canUndo: boolean; fail: (e: u
           <CollapsibleTrigger className="min-w-0 flex-1 text-left">
             <div className="flex items-baseline gap-2">
               <span className="truncate font-mono text-[13px]">{e.action.replace(/^mcp__gateway__/, '')}</span>
-              <span className={cn('text-xs font-medium', tone.text)}>{e.outcome}</span>
+              <span className={cn('shrink-0 text-xs font-medium', tone.text)}>{outcomeWords(e)}</span>
             </div>
             <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
               <span className="tabular-nums">{clock(e.at)}</span>
@@ -91,11 +104,12 @@ function Row({ e, canUndo, fail }: { e: LedgerRow; canUndo: boolean; fail: (e: u
           <dl className="mx-3 mb-2 ml-8 grid grid-cols-[76px_1fr] gap-x-3 gap-y-1 rounded-md bg-muted/50 p-3 text-xs">
             <dt className="text-muted-foreground">Arguments</dt>
             <dd><pre className="max-h-32 overflow-auto font-mono whitespace-pre-wrap break-all">{pretty(e.args)}</pre></dd>
+            {reasonOf(e) && (<><dt className="text-muted-foreground">Reason</dt><dd>{reasonOf(e)}</dd></>)}
             <dt className="text-muted-foreground">Rule</dt><dd>{e.ruleId ?? '—'}</dd>
             <dt className="text-muted-foreground">Decided</dt><dd>{e.decidedBy ?? '—'}</dd>
             <dt className="text-muted-foreground">Agent</dt><dd>v{e.agentVersion}</dd>
             <dt className="text-muted-foreground">Connection</dt><dd className="break-all">{e.connectionId ?? '—'}</dd>
-            {e.result != null && (
+            {e.result != null && !(reasonOf(e) && Object.keys(e.result as object).length === 1) && (
               <>
                 <dt className="text-muted-foreground">Result</dt>
                 <dd><pre className="max-h-32 overflow-auto font-mono whitespace-pre-wrap break-all">{pretty(e.result)}</pre></dd>

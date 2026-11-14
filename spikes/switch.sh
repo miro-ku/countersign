@@ -18,7 +18,7 @@ for(const e of r.ledger.reverse())console.log(" ledger",e.seq,e.outcome,e.action
   curl -s "$B/conversations/$CID" > /dev/null
 }
 new_conv() {
-  AID=$(curl -s -XPOST $B/agents -H "$J" -d '{"name":"Notebook","instructions":"You keep notes for Miro. Use your tools; do exactly what is asked.","defaultProvider":"claude-code"}' | field ._id)
+  AID=$(curl -s -XPOST $B/agents -H "$J" -d '{"name":"Notebook","instructions":"You keep notes for Miro. Use your tools; do exactly what is asked.","defaultProvider":"claude-code","testTools":true}' | field ._id)
   CID=$(curl -s -XPOST $B/conversations -H "$J" -d "{\"agentId\":\"$AID\"}" | field ._id)
 }
 

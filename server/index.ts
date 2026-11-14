@@ -1,6 +1,6 @@
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
-import { client, col } from './db.js';
+import { client, col, db } from './db.js';
 import { startChangeStreams, stopChangeStreams } from './changes.js';
 import { closeAllSessions, closeOpenTools, registerDriver } from './engine.js';
 import type { Step } from '../shared/types.js';
@@ -8,6 +8,7 @@ import { registerGateway } from './gateway/index.js';
 import { createApi } from './api.js';
 import { claudeCodeDriver } from './providers/claudeCode.js';
 import { codexDriver } from './providers/codex/index.js';
+import { startSearchWorker } from './search/index.js';
 
 const PORT = Number(process.env.PORT || 4100);
 
@@ -18,6 +19,7 @@ if (process.env.TEST_PROVIDER) registerDriver(claudeCodeDriver, process.env.TEST
 
 await client.connect();
 startChangeStreams();
+startSearchWorker(db);
 
 // Turns cut off by a restart: nothing is behind them any more, so close them.
 const endedAt = new Date();

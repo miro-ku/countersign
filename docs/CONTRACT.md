@@ -67,9 +67,20 @@ Each has a `$jsonSchema` validator (`validationAction: "error"`). Every `_id`
 is a string (24 hex characters, ordered by creation time), and so is every
 field that refers to one. `npm run setup:db` creates them all (safe to re-run).
 
-- `agents` `{ _id, ownerId, name, instructions, instructionsHash, version, defaultProvider, createdAt }`
+- `agents` `{ _id, ownerId, name, instructions, instructionsHash, version, defaultProvider, testTools, createdAt }` (`testTools: true` serves the built-in note tools; for testing only)
 - `connections` `{ _id, agentId, ownerId, toolkit, composioUserId, composioAccountId, status: 'pending'|'active'|'revoked', connectedAt, revokedAt }`
-- `rules` `{ _id, agentId|null, match: { action?: string, kind?: 'read'|'write' }, effect: 'allow'|'ask'|'deny', reason }` (`agentId: null` = default for every agent; the most specific match wins: action over kind, agent over default)
+- `rules` `{ _id, agentId|null, match: { action?, kind?: 'read'|'write', actionPattern?, argsPattern? }, effect: 'allow'|'ask'|'deny', reason }`
+  (`agentId: null` = default for every agent). `action` is an exact name;
+  `actionPattern` is a case-insensitive regular expression tested against the
+  action name, `argsPattern` one tested against the action's arguments as
+  JSON. A rule matches when every field it has matches. The most specific
+  matching rule wins: one with `action`, `actionPattern` or `argsPattern` over
+  one with only `kind`, an agent's own over a default, and among equals
+  `deny` over `ask` over `allow`. An invalid pattern is refused when the rule
+  is written. Defaults seeded by `setupDb`: `default-read` (read → allow),
+  `default-write` (write → ask), `no-card-numbers` (a write whose arguments
+  hold a 13–19 digit card number → deny), `no-deleting-channels` (an action
+  that deletes or archives a channel or conversation → deny).
 - `conversations` `{ _id, agentId, ownerId, provider, providerSessions: { [provider]: { sessionId, seenMessageId, at } }, stoppedNote: boolean, createdAt }`
 - `messages` `{ _id, conversationId, seq, role: 'user'|'agent'|'event', text, source: 'text'|'voice', provider?, model?, executionId?, generating: boolean, steps: Step[], at }`
 - `executions` `{ _id, conversationId, triggerMessageId, provider, model, status: 'running'|'completed'|'stopped'|'failed'|'handed_off', providerSessionId, startedAt, endedAt, error }`
@@ -195,7 +206,7 @@ export interface ToolSource {
 }
 ```
 
-- `notes` source (server track): `notes_list` (read), `notes_add` (write).
+- `notes` source (server track): `notes_list` (read), `notes_add` (write), served only to an agent with `testTools: true`. A normal new agent has no tools until an app is connected; the record of its own past comes with any other source.
 - `composio` source (apps track): the Tool Router meta-tools for the agent's
   active connections. `COMPOSIO_SEARCH_TOOLS` and `COMPOSIO_GET_TOOL_SCHEMAS`
   are reads. `COMPOSIO_MULTI_EXECUTE_TOOL` yields one `Action` per entry in its
@@ -216,6 +227,10 @@ export interface ToolSource {
    "They were asked and said no"; `approved` → allow; a `once` approval is
    consumed with `findOneAndDelete` only when the whole call goes ahead);
    else the matching rule (`allow` | `deny` with reason | `ask`); no rule → `ask`.
+   A matching `deny` rule is checked first, before any decision: no person's
+   approval overrides it. It asks nobody, the ledger entry is `denied` with the
+   `ruleId`, and the tool result says a rule forbids it and asking again will
+   not help.
    A revoked or missing connection → deny.
 4. The call's verdict is the strictest: deny > ask > allow. Nothing runs
    unless every action is allowed.
@@ -241,14 +256,14 @@ approval unless the voice judge returned `yes`.
 
 ## HTTP API
 
-- `POST /api/agents` `{ name, instructions, defaultProvider }`; `GET /api/agents`; `GET /api/agents/:id`; `PATCH /api/agents/:id` (new instructions → new version)
+- `POST /api/agents` `{ name, instructions, defaultProvider, testTools? }`; `GET /api/agents`; `GET /api/agents/:id`; `PATCH /api/agents/:id` (new instructions → new version)
 - `GET /api/agents/:id/connections`; `POST /api/agents/:id/connections` `{ toolkit }` → `{ redirectUrl }`; `GET /api/agents/:id/connect/:toolkit` (starts the connection and redirects straight to the authorization page, so a plain link works); `GET /api/connections/callback` (Composio returns here, then redirects to the page); `DELETE /api/connections/:id`
 - `POST /api/conversations` `{ agentId }`; `GET /api/conversations?agentId=` (newest 50); `GET /api/conversations/:id` (conversation, messages, the conversation's asks of every status, oldest first, last 100 ledger entries)
 - `POST /api/conversations/:id/messages` `{ text, source }` → `202`
 - `POST /api/conversations/:id/provider` `{ provider }`; `POST /api/conversations/:id/stop`
 - `POST /api/asks/:id/answer` `{ answer: 'approve'|'decline', scope: 'once'|'conversation', source: 'button'|'voice', transcript?, verdict? }`
 - `POST /api/ledger/:id/undo` (an `executed`, `undoable` entry, once; writes a new `undone` entry with `undoOf`)
-- `GET /api/rules`
+- `GET /api/rules?agentId=` (the rules that apply to the agent, its own and the defaults, in the order they are applied; without `agentId`, every rule)
 - `GET /api/conversations/:id/events` Server-Sent Events, fed by change streams:
   `{ type: 'message', message }` (insert and every update, including streaming),
   `{ type: 'ask', ask }`, `{ type: 'ledger', entry }`,

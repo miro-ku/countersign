@@ -1,0 +1,14 @@
+const U='http://localhost:5173';
+const txt=async()=>await page.evaluate(()=>document.body.innerText);
+const waitFor=async(pred,ms=90000)=>{const t=Date.now();while(Date.now()-t<ms){const b=await txt();if(pred(b))return +((Date.now()-t)/1000).toFixed(1);await sleep(250);}return -1;};
+const shot=async(n)=>{await fs.mkdir('./artifacts',{recursive:true});await page.screenshot({path:'./artifacts/'+n+'.png'});console.log('SHOT',pwd+'/artifacts/'+n+'.png');};
+await openTab(U+'/?agent=6af8a00f3ea029babf1a5652&conversation=6af8a00f3ea029babf1a5653');
+console.log('Join call on page:', await page.getByRole('button',{name:/join/i}).count(), 'voice-slot html:', await page.evaluate(()=>document.getElementById('voice-slot')?.outerHTML));
+const s=await snapshot(page,{selector:'aside:last-of-type'});
+const m=[...s.tree.matchAll(/button "SLACK_SEND_MESSAGE executed[^"]*" \[ref=(\w+)\]\n\s*- button "Undo" \[ref=(\w+)\]/g)]; console.log('undo rows',m.map(x=>x[0]));
+const t0=Date.now();
+await page.locator(m[0][2]).click();
+const u=await waitFor(b=>/SLACK_SEND_MESSAGE\s*undone/.test(b),30000);
+console.log('undone secs',u);
+await shot('r1-row7');
+console.log((await snapshot(page,{selector:'aside:last-of-type'})).tree);

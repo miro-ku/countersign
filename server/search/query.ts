@@ -5,7 +5,7 @@ import { RECORD, RECORD_INDEX } from './setup.js';
 import { spokenTime } from './describe.js';
 
 /** Below this the matches were unrelated in the real data (see the task's query table). */
-export const MIN_SCORE = 0.6;
+export const MIN_SCORE = 0.68;
 
 export interface Hit {
   id: string;

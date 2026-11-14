@@ -133,6 +133,7 @@ await check('create an agent', async () => {
       instructions:
         'You keep notes. Use the notes tools when asked. When a tool call is refused, say so in one sentence and stop.',
       defaultProvider: 'claude-code',
+      testTools: true,
     }),
     'agent',
   );
@@ -205,6 +206,19 @@ if (withSwitch) {
     await turnEnded(from);
   });
 }
+
+await check('a card number is denied by rule, with no ask', async () => {
+  const from = events.length;
+  await say(`Add a note with exactly this text: card 4111 1111 1111 1111 ${tag}`);
+  const entry = unwrap(await ledger(from, 'notes_add', 'denied'), 'entry');
+  if (entry.ruleId !== 'no-card-numbers') {
+    throw new Error(`denied by ${entry.ruleId ?? 'no rule'}`);
+  }
+  await turnEnded(from);
+  if (events.slice(from).some((e) => e.type === 'ask')) {
+    throw new Error('it asked');
+  }
+});
 
 console.log('All steps passed.');
 process.exit(0);

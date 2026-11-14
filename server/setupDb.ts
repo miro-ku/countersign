@@ -2,6 +2,8 @@
 // rules. Safe to run again: it updates what exists.
 import { config } from 'dotenv';
 import { MongoClient } from 'mongodb';
+import { setupSearch } from './search/index.js';
+import { checkRule } from './gateway/rules.js';
 
 config({ quiet: true });
 
@@ -30,7 +32,7 @@ const validators: Record<string, object> = {
     ['_id', 'ownerId', 'name', 'instructions', 'instructionsHash', 'version', 'defaultProvider', 'createdAt'],
     {
       _id: str, ownerId: str, name: str, instructions: str, instructionsHash: str,
-      version: int, defaultProvider: { enum: ['claude-code', 'codex'] }, createdAt: date,
+      version: int, defaultProvider: { enum: ['claude-code', 'codex'] }, testTools: bool, createdAt: date,
     },
   ),
   connections: schema(['_id', 'agentId', 'ownerId', 'toolkit', 'status'], {
@@ -39,7 +41,7 @@ const validators: Record<string, object> = {
   }),
   rules: schema(['_id', 'agentId', 'match', 'effect'], {
     _id: str, agentId: strOrNull,
-    match: { bsonType: 'object', properties: { action: str, kind } },
+    match: { bsonType: 'object', properties: { action: str, kind, actionPattern: str, argsPattern: str } },
     effect: { enum: ['allow', 'ask', 'deny'] }, reason: str,
   }),
   conversations: schema(
@@ -122,11 +124,25 @@ async function main() {
   const defaults = [
     { _id: 'default-read', agentId: null, match: { kind: 'read' as const }, effect: 'allow' as const, reason: 'Reading is allowed by default.' },
     { _id: 'default-write', agentId: null, match: { kind: 'write' as const }, effect: 'ask' as const, reason: 'Changes are asked about by default.' },
+    {
+      _id: 'no-card-numbers', agentId: null,
+      // 13 to 19 digits, optionally separated by single spaces or dashes.
+      match: { kind: 'write' as const, argsPattern: '(?<![0-9])[0-9](?:[ -]?[0-9]){12,18}(?![0-9])' },
+      effect: 'deny' as const, reason: 'Card numbers are never sent anywhere.',
+    },
+    {
+      _id: 'no-deleting-channels', agentId: null,
+      match: { actionPattern: '^[A-Z]+_(ARCHIVE|DELETE)_(A_)?(PUBLIC_OR_PRIVATE_)?(CHANNEL|CONVERSATION)' },
+      effect: 'deny' as const, reason: 'Channels are never deleted or archived by an agent.',
+    },
   ];
+  for (const rule of defaults) checkRule(rule);
   for (const rule of defaults) {
     await db.collection('rules').replaceOne({ _id: rule._id as any }, rule, { upsert: true });
   }
-  console.log('default rules in place: read → allow, write → ask');
+  console.log('default rules in place: read → allow, write → ask, no card numbers, no deleting channels');
+  // The agent's record of its own past and its vector index.
+  await setupSearch(db);
   await client.close();
 }
 

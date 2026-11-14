@@ -5,7 +5,7 @@
 MODE=${1:-stop}; B=${2:-http://localhost:4100/api}; TO=${3:-codex}
 J='content-type: application/json'
 g() { node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const r=JSON.parse(s);console.log($1)})"; }
-AID=$(curl -s -XPOST $B/agents -H "$J" -d '{"name":"Gateway check","instructions":"You keep notes for Miro. Use your tools; do exactly what is asked.","defaultProvider":"claude-code"}' | g "r._id")
+AID=$(curl -s -XPOST $B/agents -H "$J" -d '{"name":"Gateway check","instructions":"You keep notes for Miro. Use your tools; do exactly what is asked.","defaultProvider":"claude-code","testTools":true}' | g "r._id")
 CID=$(curl -s -XPOST $B/conversations -H "$J" -d "{\"agentId\":\"$AID\"}" | g "r._id"); echo "conversation $CID"
 curl -s -XPOST $B/conversations/$CID/messages -H "$J" -d '{"text":"add a note saying epsilon","source":"text"}' >/dev/null
 for i in $(seq 1 60); do a=$(curl -s $B/conversations/$CID | g "r.asks.filter(a=>a.status==="open").length"); [ "$a" != 0 ] && break; sleep 1; done; echo "open asks: $a"

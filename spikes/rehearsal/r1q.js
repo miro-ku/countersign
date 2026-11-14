@@ -1,0 +1,26 @@
+const U='http://localhost:5173';
+const txt=async()=>await page.evaluate(()=>document.body.innerText);
+const waitFor=async(pred,ms=90000)=>{const t=Date.now();while(Date.now()-t<ms){const b=await txt();if(pred(b))return +((Date.now()-t)/1000).toFixed(1);await sleep(250);}return -1;};
+const shot=async(n)=>{await fs.mkdir('./artifacts',{recursive:true});await page.screenshot({path:'./artifacts/'+n+'.png'});console.log('SHOT',pwd+'/artifacts/'+n+'.png');};
+await openTab(U+'/?agent=6af8a00f3ea029babf1a5652&conversation=6af8a00f3ea029babf1a5653');
+const box=page.getByRole('textbox',{name:'Message'});
+await box.fill("Without using any tools, write a 200-word internal note about how refunds are approved.");
+await box.press('Enter');
+await sleep(2500);
+const t0=Date.now(); await page.reload(); 
+await waitFor(b=>b.includes('Rehearsal 1'),15000);
+console.log('reload secs',(Date.now()-t0)/1000,'url',page.url());
+console.log('after reload: writing?',/writing…/.test(await txt()),'Stop?',await page.getByRole('button',{name:'Stop'}).count());
+const d=await waitFor(b=>!/writing…/.test(b),90000); console.log('finished after reload secs',d);
+await shot('r1-row8-reload');
+// Stop test
+await box.fill("Without using any tools, write a 300-word story about a refund.");
+await box.press('Enter');
+await sleep(3000);
+const t1=Date.now();
+await page.getByRole('button',{name:'Stop'}).first().click();
+const s=await waitFor(b=>!/writing…/.test(b),20000); console.log('stopped visible secs',s,'Stop buttons left',await page.getByRole('button',{name:'Stop'}).count());
+await shot('r1-row8-stop');
+await box.fill("Say just: ready.");
+await box.press('Enter');
+const r=await waitFor(b=>!/writing…/.test(b)&&/ready/i.test(b.split('Say just: ready.').pop()),60000); console.log('next turn after stop secs',r);

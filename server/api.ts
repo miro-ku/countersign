@@ -5,7 +5,9 @@ import { col, db, newId, OWNER_ID } from './db.js';
 import { changes, conversationOf, type ChangeKind } from './changes.js';
 import { knownProviders, postMessage, stopTurn, switchProvider } from './engine.js';
 import { answerAsk, undoLedgerEntry } from './gateway/index.js';
+import { rulesFor } from './gateway/rules.js';
 import { registerConnectionRoutes } from './integrations/index.js';
+import { registerSearchRoutes } from './search/index.js';
 
 const hash = (s: string) => createHash('sha256').update(s).digest('hex').slice(0, 16);
 
@@ -27,7 +29,7 @@ export function createApi(): Hono {
     if (!['claude-code', 'codex'].includes(defaultProvider)) return c.json({ error: 'unknown provider' }, 400);
     const agent = {
       _id: newId(), ownerId: OWNER_ID, name, instructions, instructionsHash: hash(instructions),
-      version: 1, defaultProvider, createdAt: new Date(),
+      version: 1, defaultProvider, testTools: body.testTools === true, createdAt: new Date(),
     };
     await col.agents.insertOne(agent);
     return c.json(agent, 201);
@@ -121,7 +123,11 @@ export function createApi(): Hono {
   });
 
   // ── Rules (read-only today) ──
-  api.get('/rules', async (c) => c.json(await col.rules.find({}).toArray()));
+  // With ?agentId=, the rules that apply to that agent, in the order they are applied.
+  api.get('/rules', async (c) => {
+    const agentId = c.req.query('agentId');
+    return c.json(agentId ? await rulesFor(agentId) : await col.rules.find({}).toArray());
+  });
 
   // ── Event stream ──
   api.get('/conversations/:id/events', async (c) => {
@@ -160,5 +166,6 @@ export function createApi(): Hono {
   });
 
   registerConnectionRoutes(api, db);
+  registerSearchRoutes(api, db);
   return api;
 }

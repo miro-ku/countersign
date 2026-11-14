@@ -1,0 +1,16 @@
+const U='http://localhost:5173';
+const txt=async()=>await page.evaluate(()=>document.body.innerText);
+const waitFor=async(pred,ms=90000)=>{const t=Date.now();while(Date.now()-t<ms){const b=await txt();if(pred(b))return +((Date.now()-t)/1000).toFixed(1);await sleep(250);}return -1;};
+const shot=async(n)=>{await fs.mkdir('./artifacts',{recursive:true});await page.screenshot({path:'./artifacts/'+n+'.png'});console.log('SHOT',pwd+'/artifacts/'+n+'.png');};
+await openTab(U+'/?agent=6af8a00f3ea029babf1a5652&conversation=6af8a00f3ea029babf1a5653');
+const box=page.getByRole('textbox',{name:'Message'});
+await box.fill("Without using any tools, write a 250-word internal note about refund fraud signs.");
+await box.press('Enter');
+await sleep(2500);
+await page.reload();
+await sleep(1500);
+console.log('url',page.url());
+console.log((await snapshot(page,{selector:'main'})).tree);
+await shot('r1-row8-reload2');
+await sleep(4000);
+console.log('--- 4s later writing?',/writing…/.test(await txt()), 'Stop', await page.getByRole('button',{name:'Stop'}).count());

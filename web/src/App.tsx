@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { MailIcon, MessageSquareIcon, PlusIcon, ShieldCheckIcon, SquarePenIcon, SquareIcon, WifiOffIcon, XIcon } from 'lucide-react';
+import { ListChecksIcon, MailIcon, MessageSquareIcon, PlusIcon, ShieldCheckIcon, SquarePenIcon, SquareIcon, WifiOffIcon, XIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
@@ -14,7 +15,7 @@ import { cn } from '@/lib/utils';
 import { api, cap, useConversation } from './api.ts';
 import { Chat } from './Chat.tsx';
 import { Ledger } from './Ledger.tsx';
-import { PROVIDER_LABEL, type Agent, type Connection, type Provider } from './types.ts';
+import { PROVIDER_LABEL, type Agent, type Connection, type Provider, type Rule } from './types.ts';
 
 const TOOLKITS = [
   { id: 'slack', label: 'Slack', icon: MessageSquareIcon },
@@ -29,6 +30,7 @@ function readPlace() {
     agentId: q.get('agent') ?? localStorage.getItem('agent'),
     conversationId: q.get('conversation') ?? localStorage.getItem('conversation'),
     connected: q.get('connected'),
+    connectError: q.get('connectError'),
   };
 }
 
@@ -47,8 +49,10 @@ export function App() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agentId, setAgentId] = useState<string | null>(start.agentId);
   const [conversationId, setConversationId] = useState<string | null>(start.conversationId);
-  const [notice, setNotice] = useState<{ text: string; ok: boolean } | null>(
-    start.connected ? { text: `${cap(start.connected)} connected`, ok: true } : null,
+  const [notice, setNotice] = useState<{ text: string; tone: 'ok' | 'bad' | 'quiet' } | null>(
+    start.connected ? { text: `${cap(start.connected)} connected`, tone: 'ok' }
+      : start.connectError ? { text: `${cap(start.connectError)} was not connected. You can try again.`, tone: 'quiet' }
+      : null,
   );
   const [serverUp, setServerUp] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -61,7 +65,7 @@ export function App() {
   useEffect(() => writePlace(agentId, conversationId), [agentId, conversationId]);
   useEffect(() => { if (notice) { const t = setTimeout(() => setNotice(null), 6000); return () => clearTimeout(t); } }, [notice]);
 
-  const fail = (e: unknown) => setNotice({ text: e instanceof Error ? e.message : String(e), ok: false });
+  const fail = (e: unknown) => setNotice({ text: `Something went wrong: ${e instanceof Error ? e.message : String(e)}`, tone: 'bad' });
   const agent = agents.find((a) => a._id === agentId) ?? null;
 
   const selectAgent = async (a: Agent) => {
@@ -111,11 +115,11 @@ export function App() {
         <ScrollArea className="min-h-0 flex-1 px-2">
           <div className="flex flex-col pb-3">
             {agents.map((a) => (
+              <div key={a._id}>
               <button
-                key={a._id}
                 onClick={() => selectAgent(a)}
                 className={cn(
-                  'flex items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent',
+                  'flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent',
                   a._id === agentId && 'bg-accent',
                 )}
               >
@@ -125,6 +129,16 @@ export function App() {
                 <span className="min-w-0 flex-1 truncate text-sm">{a.name}</span>
                 <span className="text-[11px] text-muted-foreground tabular-nums">v{a.version}</span>
               </button>
+              {a._id === agentId && (
+                <Conversations
+                  agentId={a._id}
+                  current={conversationId}
+                  refreshKey={`${conversationId}:${Object.values(live.messages).filter((m) => m.role === 'user').length}`}
+                  onPick={setConversationId}
+                  onNew={newConversation}
+                />
+              )}
+              </div>
             ))}
             {agents.length === 0 && serverUp && <p className="px-2 py-1.5 text-sm text-muted-foreground">None yet</p>}
             {!serverUp && (
@@ -142,6 +156,7 @@ export function App() {
               <div className="flex min-w-0 flex-1 items-baseline gap-2">
                 <h1 className="truncate text-sm font-semibold">{agent.name}</h1>
                 <span className="text-xs text-muted-foreground tabular-nums">v{agent.version}</span>
+                <Rules agentId={agent._id} />
               </div>
               {running && (
                 <Button variant="ghost" size="sm" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={stop}>
@@ -174,9 +189,11 @@ export function App() {
         {notice && (
           <div className={cn(
             'mx-auto mt-3 flex w-full max-w-2xl items-center gap-3 rounded-md border px-3 py-2 text-sm',
-            notice.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-red-200 bg-red-50 text-red-900',
+            notice.tone === 'ok' ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+              : notice.tone === 'bad' ? 'border-red-200 bg-red-50 text-red-900'
+              : 'border-border bg-muted/40 text-muted-foreground',
           )}>
-            <span className="flex-1">{notice.ok ? notice.text : `Something went wrong: ${notice.text}`}</span>
+            <span className="flex-1">{notice.text}</span>
             <button onClick={() => setNotice(null)} aria-label="Dismiss"><XIcon className="size-4" /></button>
           </div>
         )}
@@ -211,10 +228,9 @@ function Apps({ agentId, connections, fail }: { agentId: string; connections: Co
   return (
     <div className="flex items-center gap-1">
       {TOOLKITS.map(({ id, label, icon: Icon }) => {
-        const c = connections
-          .filter((x) => x.toolkit?.toLowerCase() === id && x.status !== 'revoked')
-          .sort((a, b) => (a.status === 'active' ? -1 : 1) - (b.status === 'active' ? -1 : 1))[0];
-        if (c?.status === 'active') {
+        // Only a working connection counts; pending or stale ones are offered again.
+        const c = connections.find((x) => x.toolkit?.toLowerCase() === id && x.status === 'active' && !x.stale);
+        if (c) {
           return (
             <span key={id} className="group/chip flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium">
               <span className="size-1.5 rounded-full bg-emerald-500" />
@@ -241,7 +257,7 @@ function Apps({ agentId, connections, fail }: { agentId: string; connections: Co
                   try { location.href = (await api.connect(agentId, id)).redirectUrl; } catch (e) { fail(e); }
                 }}
               >
-                <Icon /> {c?.status === 'pending' ? `Finish ${label}` : `Connect ${label}`}
+                <Icon /> Connect {label}
               </Button>
             </TooltipTrigger>
             <TooltipContent>Give this agent access to your {label}</TooltipContent>
@@ -249,6 +265,98 @@ function Apps({ agentId, connections, fail }: { agentId: string; connections: Co
         );
       })}
     </div>
+  );
+}
+
+/** The agent's conversations, newest first, each named by its first message. */
+function Conversations({ agentId, current, refreshKey, onPick, onNew }: {
+  agentId: string; current: string | null; refreshKey: string;
+  onPick: (id: string) => void; onNew: () => void;
+}) {
+  const [list, setList] = useState<{ _id: string; title: string }[]>([]);
+  useEffect(() => {
+    let off = false;
+    (async () => {
+      const convs = (await api.listConversations(agentId)).slice(0, 8);
+      const titled = await Promise.all(convs.map(async (c) => {
+        try {
+          const snap = await api.getConversation(c._id);
+          const first = ((snap.messages ?? []) as { role: string; seq: number; text: string }[])
+            .filter((m) => m.role === 'user').sort((x, y) => x.seq - y.seq)[0];
+          return { _id: c._id, title: first?.text ?? 'New chat' };
+        } catch { return { _id: c._id, title: 'New chat' }; }
+      }));
+      if (!off) setList(titled);
+    })().catch(() => {});
+    return () => { off = true; };
+  }, [agentId, refreshKey]);
+
+  return (
+    <div className="my-1 ml-5 flex flex-col gap-px border-l pl-2">
+      <button onClick={onNew} className="flex items-center gap-1.5 rounded px-2 py-1 text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground">
+        <PlusIcon className="size-3" /> New chat
+      </button>
+      {list.map((c) => (
+        <button
+          key={c._id}
+          onClick={() => onPick(c._id)}
+          title={c.title}
+          className={cn(
+            'truncate rounded px-2 py-1 text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground',
+            c._id === current && 'bg-background font-medium text-foreground ring-1 ring-border',
+          )}
+        >
+          {c.title}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const EFFECT_TONE: Record<Rule['effect'], string> = { allow: 'text-emerald-700', ask: 'text-amber-700', deny: 'text-red-700' };
+
+function matchWords(r: Rule): string {
+  const m = r.match;
+  if (m.action) return m.action;
+  const what = m.kind === 'read' ? 'reads' : m.kind === 'write' ? 'changes' : 'actions';
+  if (m.actionPattern) return `${what} with a matching name`;
+  if (m.argsPattern) return `${what} whose arguments match`;
+  return m.kind === 'read' ? 'anything that reads' : m.kind === 'write' ? 'anything that changes something' : 'anything';
+}
+
+/** The rules that apply to this agent, in the order they are checked. Read-only. */
+function Rules({ agentId }: { agentId: string }) {
+  const [rules, setRules] = useState<Rule[] | null>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    api.rules(agentId).then(setRules).catch(() => setRules([]));
+  }, [agentId, open]);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs text-muted-foreground">
+          <ListChecksIcon className="size-3.5" /> Rules
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-96 p-0">
+        <div className="border-b px-3 py-2 text-xs font-medium text-muted-foreground">Checked before every tool call, first match wins</div>
+        <ol className="max-h-80 overflow-auto py-1">
+          {rules === null && <li className="px-3 py-2 text-xs text-muted-foreground">Loading…</li>}
+          {rules?.length === 0 && <li className="px-3 py-2 text-xs text-muted-foreground">No rules: every action is asked about.</li>}
+          {rules?.map((r) => (
+            <li key={r._id} className="px-3 py-1.5">
+              <div className="flex items-baseline gap-2">
+                <span className={cn('w-10 shrink-0 text-xs font-semibold', EFFECT_TONE[r.effect])}>{r.effect}</span>
+                <span className={cn('min-w-0 truncate text-[13px]', r.match.action && 'font-mono')} title={r.match.actionPattern ?? r.match.argsPattern}>{matchWords(r)}</span>
+                {r.agentId == null && <span className="ml-auto shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">default</span>}
+              </div>
+              <p className="ml-12 text-xs text-muted-foreground">{r.reason}</p>
+            </li>
+          ))}
+        </ol>
+      </PopoverContent>
+    </Popover>
   );
 }
 

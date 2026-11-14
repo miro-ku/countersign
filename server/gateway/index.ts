@@ -12,10 +12,13 @@ import { createComposioSource, kindOf } from '../integrations/index.js';
 import { appendLedger } from './ledger.js';
 import { fingerprint } from './fingerprint.js';
 import { isNotesTool, notesSource } from './notes.js';
+import { matchRule, rulesFor } from './rules.js';
+import { createRecordSource, isRecordTool } from '../search/index.js';
 
 const HOLD_MS = 4 * 60 * 1000;
 
 const composioSource: ToolSource | null = createComposioSource(db);
+const recordSource: ToolSource = createRecordSource(db);
 
 // ── Tokens ───────────────────────────────────────────────────────
 
@@ -50,13 +53,26 @@ export function whenLateApproval(fn: (ask: AskDoc) => void) {
 
 // ── Sources ──────────────────────────────────────────────────────
 
+/**
+ * The sources an agent has. A new agent has none until an app is connected;
+ * the note tools are only for agents made for testing. The record of its own
+ * past comes with any other source.
+ */
 async function sourcesFor(agentId: string): Promise<ToolSource[]> {
-  const sources: ToolSource[] = [notesSource];
+  const sources: ToolSource[] = [];
+  const agent = await col.agents.findOne({ _id: agentId }, { projection: { testTools: 1 } });
+  if (agent?.testTools) sources.push(notesSource);
   if (composioSource) {
     const active = await col.connections.countDocuments({ agentId, status: 'active' });
     if (active > 0) sources.push(composioSource);
   }
+  if (sources.length) sources.push(recordSource);
   return sources;
+}
+
+/** Whether the agent has any tools at all. */
+export async function hasTools(agentId: string): Promise<boolean> {
+  return (await sourcesFor(agentId)).length > 0;
 }
 
 async function toolMap(agentId: string): Promise<Map<string, { source: ToolSource; def: McpToolDef }>> {
@@ -69,6 +85,7 @@ async function toolMap(agentId: string): Promise<Map<string, { source: ToolSourc
 
 export function sourceForAction(action: string): ToolSource | null {
   if (isNotesTool(action)) return notesSource;
+  if (isRecordTool(action)) return recordSource;
   return composioSource;
 }
 
@@ -81,25 +98,10 @@ type Verdict =
 
 const strictness = { allow: 0, ask: 1, deny: 2 } as const;
 
-/** The most specific rule: action over kind, then agent over default. */
-function matchRule(rules: RuleDoc[], action: Action): RuleDoc | undefined {
-  let best: RuleDoc | undefined;
-  let bestScore = -1;
-  for (const rule of rules) {
-    const { action: name, kind } = rule.match ?? {};
-    if (name !== undefined && name !== action.name) continue;
-    if (kind !== undefined && kind !== action.kind) continue;
-    if (name === undefined && kind === undefined) continue;
-    const score = (name !== undefined ? 2 : 0) + (rule.agentId ? 1 : 0);
-    if (score > bestScore) {
-      best = rule;
-      bestScore = score;
-    }
-  }
-  return best;
-}
-
 async function verdictFor(conversationId: string, rules: RuleDoc[], action: Action, fp: string): Promise<Verdict> {
+  const rule = matchRule(rules, action);
+  // A deny rule comes first: no person's approval overrides it.
+  if (rule?.effect === 'deny') return { effect: 'deny', reason: rule.reason || 'A rule forbids it.', ruleId: rule._id };
   if (action.connectionId) {
     const connection = await col.connections.findOne({ _id: action.connectionId } as any);
     if (!connection || connection.status !== 'active') {
@@ -109,9 +111,7 @@ async function verdictFor(conversationId: string, rules: RuleDoc[], action: Acti
   const decision = await col.decisions.findOne({ conversationId, fingerprint: fp });
   if (decision?.effect === 'declined') return { effect: 'deny', reason: 'They were asked and said no.' };
   if (decision?.effect === 'approved') return { effect: 'allow', onceDecision: decision.scope === 'once' };
-  const rule = matchRule(rules, action);
   if (!rule) return { effect: 'ask' };
-  if (rule.effect === 'deny') return { effect: 'deny', reason: rule.reason || 'A rule forbids it.', ruleId: rule._id };
   return { effect: rule.effect, ruleId: rule._id };
 }
 
@@ -207,7 +207,7 @@ export async function handleCall(info: TokenInfo, tool: string, input: unknown, 
     return refuse(`${tool} is refused: this tool is not offered.`);
   }
 
-  const rules = await col.rules.find({ agentId: { $in: [agentId, null] } }).toArray();
+  const rules = await rulesFor(agentId);
   const checked = await Promise.all(
     actions.map(async (action) => {
       const fp = fingerprint(action.name, action.args);
@@ -226,7 +226,8 @@ export async function handleCall(info: TokenInfo, tool: string, input: unknown, 
     for (const c of checked) {
       if (c.verdict.effect !== 'deny') continue;
       await appendLedger({ ...ledgerOf(c), outcome: 'denied', result: { reason: c.verdict.reason } });
-      reasons.push(`${c.action.summary}: refused. ${c.verdict.reason}`);
+      const byRule = c.verdict.ruleId ? ' A rule forbids this; asking again will not help.' : '';
+      reasons.push(`${c.action.summary}: refused. ${c.verdict.reason}${byRule}`);
     }
     return refuse(reasons.join('\n'));
   }

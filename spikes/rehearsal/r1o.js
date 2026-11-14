@@ -1,0 +1,17 @@
+const U='http://localhost:5173';
+const txt=async()=>await page.evaluate(()=>document.body.innerText);
+const waitFor=async(pred,ms=90000)=>{const t=Date.now();while(Date.now()-t<ms){const b=await txt();if(pred(b))return +((Date.now()-t)/1000).toFixed(1);await sleep(250);}return -1;};
+const shot=async(n)=>{await fs.mkdir('./artifacts',{recursive:true});await page.screenshot({path:'./artifacts/'+n+'.png'});console.log('SHOT',pwd+'/artifacts/'+n+'.png');};
+await openTab(U+'/?agent=6af8a00f3ea029babf1a5652&conversation=6af8a00f3ea029babf1a5653');
+await page.getByRole('textbox',{name:'Message'}).fill("Post exactly this text in #demo, nothing else: Rehearsal check, please ignore");
+const t1=Date.now();
+await page.getByRole('textbox',{name:'Message'}).press('Enter');
+const a=await waitFor(b=>/\bApprove\b/.test(b.split('Rehearsal check, please ignore').pop()),90000);
+console.log('card secs',a);
+await page.getByRole('button',{name:'Approve'}).dblclick();
+await sleep(400);
+console.log('notice after dblclick:', (await txt()).match(/(error|failed|already|409|not open)[^\n]{0,120}/i)?.[0]);
+const d=await waitFor(b=>!/writing…/.test(b),60000);
+await sleep(1000);
+await shot('r1-row8-dbl');
+console.log((await txt()).split('Rehearsal check, please ignore').slice(1).join(' || ').slice(0,900));

@@ -36,6 +36,8 @@ export interface AgentDoc {
   instructionsHash: string;
   version: number;
   defaultProvider: string;
+  /** Serves the built-in note tools; for testing only. */
+  testTools?: boolean;
   createdAt: Date;
 }
 
@@ -121,7 +123,8 @@ export interface DecisionDoc {
 export interface RuleDoc {
   _id: string;
   agentId: string | null;
-  match: { action?: string; kind?: 'read' | 'write' };
+  /** Every field present must match: `action` exactly, the patterns as case-insensitive regular expressions. */
+  match: { action?: string; kind?: 'read' | 'write'; actionPattern?: string; argsPattern?: string };
   effect: 'allow' | 'ask' | 'deny';
   reason: string;
 }

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { BotIcon, CheckIcon, KeyboardIcon, MicIcon, MinusIcon, ShieldAlertIcon, XIcon } from 'lucide-react';
 import {
   Confirmation, ConfirmationAction, ConfirmationActions, ConfirmationRequest, ConfirmationTitle,
@@ -15,33 +15,25 @@ import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput, type ToolPart } f
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { api, cap, type Live } from './api.ts';
-import { PROVIDER_LABEL, type Ask, type LedgerRow, type Message as Msg, type Provider, type Step } from './types.ts';
+import { PROVIDER_LABEL, type Ask, type Message as Msg, type Provider, type Step } from './types.ts';
 
-type Item = { kind: 'message'; m: Msg } | { kind: 'ask'; a: Ask } | { kind: 'decision'; e: LedgerRow };
+type Item = { kind: 'message'; m: Msg } | { kind: 'ask'; a: Ask };
 
 const time = (s?: string) => (s ? new Date(s).getTime() : 0);
 const toolName = (n: string) => n.replace(/^mcp__gateway__/, '');
+const VOICE_WIDGET: string = 'http://localhost:4200/widget.js';
 
 const PROVIDER_DOT: Record<Provider, string> = {
   'claude-code': 'bg-orange-500',
   codex: 'bg-zinc-900',
 };
 
-/**
- * Messages in `seq` order; each ask sits after the last message written before
- * it. The snapshot only carries open asks, so an answer this browser never saw
- * is shown from its ledger entry instead.
- */
+/** Messages in `seq` order; each ask sits after the last message written before it. */
 function timeline(live: Live): Item[] {
   const messages = Object.values(live.messages).sort((a, b) => a.seq - b.seq);
-  const asks = Object.values(live.asks);
-  const seen = new Set(asks.map((a) => a.fingerprint));
-  const side: { at: number; item: Item }[] = [
-    ...asks.map((a) => ({ at: time(a.createdAt), item: { kind: 'ask', a } as Item })),
-    ...Object.values(live.ledger)
-      .filter((e) => (e.outcome === 'approved' || e.outcome === 'declined') && !seen.has(e.fingerprint))
-      .map((e) => ({ at: time(e.at), item: { kind: 'decision', e } as Item })),
-  ].sort((x, y) => x.at - y.at);
+  const side = Object.values(live.asks)
+    .map((a) => ({ at: time(a.createdAt), item: { kind: 'ask', a } as Item }))
+    .sort((x, y) => x.at - y.at);
   const items: Item[] = [];
   let i = 0;
   for (const m of messages) {
@@ -57,8 +49,21 @@ function timeline(live: Live): Item[] {
 export function Chat({ live, conversationId, agentId, running, onStop, fail }: {
   live: Live; conversationId: string; agentId: string; running: boolean; onStop: () => void; fail: (e: unknown) => void;
 }) {
-  const items = useMemo(() => timeline(live), [live.messages, live.asks, live.ledger]);
+  const items = useMemo(() => timeline(live), [live.messages, live.asks]);
   const asks = Object.values(live.asks);
+  const voiceSlot = useRef<HTMLDivElement>(null);
+
+  // The voice service serves its own call widget; when it is down the slot stays empty.
+  useEffect(() => {
+    const slot = voiceSlot.current;
+    if (!slot) return;
+    let gone = false;
+    let ui: { leave: () => void } | null = null;
+    import(/* @vite-ignore */ VOICE_WIDGET)
+      .then(({ mountVoice }) => { if (!gone) ui = mountVoice(slot, { conversationId }); })
+      .catch(() => {});
+    return () => { gone = true; ui?.leave(); slot.innerHTML = ''; };
+  }, [conversationId]);
 
   return (
     <>
@@ -74,8 +79,7 @@ export function Chat({ live, conversationId, agentId, running, onStop, fail }: {
           ) : (
             items.map((it) =>
               it.kind === 'message' ? <MessageView key={it.m._id} m={it.m} asks={asks} />
-                : it.kind === 'ask' ? <AskView key={it.a._id} a={it.a} fail={fail} />
-                : <DecisionLine key={it.e._id} e={it.e} />,
+                : <AskView key={it.a._id} a={it.a} fail={fail} />,
             )
           )}
         </ConversationContent>
@@ -83,7 +87,7 @@ export function Chat({ live, conversationId, agentId, running, onStop, fail }: {
       </Conversation>
 
       <div className="mx-auto w-full max-w-2xl px-6 pb-5">
-        <div className="flex items-end gap-2">
+        <div className="flex items-center gap-2">
           <PromptInput
             className="flex-1"
             onSubmit={({ text }) => {
@@ -100,7 +104,7 @@ export function Chat({ live, conversationId, agentId, running, onStop, fail }: {
             </PromptInputFooter>
           </PromptInput>
           {/* The voice track mounts its call button here. */}
-          <div id="voice-slot" className="pb-1" data-conversation-id={conversationId} data-agent-id={agentId} />
+          <div id="voice-slot" ref={voiceSlot} data-conversation-id={conversationId} data-agent-id={agentId} />
         </div>
       </div>
     </>
@@ -194,11 +198,16 @@ function ToolCall({ req, res, asks }: {
   if (!res) state = ask?.status === 'open' ? 'approval-requested' : 'input-available';
   else if (res.isError) state = ask?.status === 'declined' ? 'output-denied' : 'output-error';
   else state = 'output-available';
-  const errorText = res?.isError ? (typeof res.output === 'string' ? res.output : JSON.stringify(res.output)) : undefined;
+  const errorText = res?.isError ? reasonOf(res.output) : undefined;
 
   return (
     <Tool className="mb-0 rounded-lg bg-background">
       <ToolHeader type="dynamic-tool" toolName={name} state={state} title={name} className="px-3 py-2 [&>div>span:not([data-slot])]:font-mono [&>div>span:not([data-slot])]:text-[13px] [&>div>span:not([data-slot])]:font-normal" />
+      {errorText && (
+        <p className="-mt-1 truncate px-3 pb-2 pl-9 text-xs text-red-700" title={errorText}>
+          {/stopped while running/i.test(errorText) ? 'Stopped while running.' : `${state === 'output-denied' || /refused|said no|denied/i.test(errorText) ? 'Refused' : 'Failed'}: ${errorText}`}
+        </p>
+      )}
       <ToolContent>
         <ToolInput input={req.input} />
         {res && <ToolOutput output={res.isError ? undefined : res.output} errorText={errorText} />}
@@ -219,9 +228,18 @@ function QuietLine({ kind, line, what }: { kind: string; line: string; what: str
   );
 }
 
-function DecisionLine({ e }: { e: LedgerRow }) {
-  const ok = e.outcome === 'approved';
-  return <QuietLine kind={e.outcome} line={`${ok ? 'Approved' : 'Rejected'} by ${cap(e.decidedBy ?? 'miro')}`} what={toolName(e.action)} />;
+/** The words of a refusal, whatever shape the tool result came in. */
+function reasonOf(output: unknown): string {
+  if (typeof output === 'string') return output;
+  if (Array.isArray(output)) return output.map(reasonOf).filter(Boolean).join(' ');
+  if (output && typeof output === 'object') {
+    const o = output as Record<string, unknown>;
+    if (typeof o.reason === 'string') return o.reason;
+    if (typeof o.text === 'string') return o.text;
+    if (typeof o.error === 'string') return o.error;
+    if (o.content) return reasonOf(o.content);
+  }
+  return JSON.stringify(output);
 }
 
 function AskView({ a, fail }: { a: Ask; fail: (e: unknown) => void }) {

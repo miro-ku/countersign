@@ -7,13 +7,18 @@ import { changes } from '../changes.js';
 import { describeEntry, describeMessage } from './describe.js';
 import { RECORD } from './setup.js';
 
-/** The agent's own look-ups are in the ledger, but not in what it searches. */
-const SKIP_ACTIONS = new Set(['record_search', 'record_explain']);
+/**
+ * In the ledger, but not in what is searched: the agent's own look-ups and the
+ * app-tool discovery calls (plumbing nobody asks about), and `allowed` steps,
+ * whose `executed` entry already says which rule allowed them.
+ */
+const SKIP_ACTIONS = new Set(['record_search', 'record_explain', 'COMPOSIO_SEARCH_TOOLS', 'COMPOSIO_GET_TOOL_SCHEMAS']);
+const skipped = (e: any) => SKIP_ACTIONS.has(e.action) || e.outcome === 'allowed';
 
 const CATCH_UP_MS = 60_000;
 
 export async function recordEntry(db: Db, e: any): Promise<void> {
-  if (SKIP_ACTIONS.has(e.action)) return;
+  if (skipped(e)) return;
   const text = await describeEntry(db, e);
   await db.collection<any>(RECORD).updateOne(
     { _id: e._id },
@@ -58,11 +63,11 @@ export async function recordMessage(db: Db, m: any): Promise<void> {
 const missing = { $lookup: { from: RECORD, localField: '_id', foreignField: '_id', as: 'r', pipeline: [{ $project: { _id: 1 } }] } };
 
 /** Everything that has no record yet. Returns how many were added. */
-export async function catchUp(db: Db): Promise<{ actions: number; messages: number }> {
+export async function catchUp(db: Db, opts: { all?: boolean } = {}): Promise<{ actions: number; messages: number }> {
   let actions = 0;
   let messages = 0;
   const entries = db.collection('ledger').aggregate([
-    { $match: { action: { $nin: [...SKIP_ACTIONS] } } }, missing, { $match: { r: { $size: 0 } } }, { $sort: { seq: 1 } },
+    { $match: { action: { $nin: [...SKIP_ACTIONS] }, outcome: { $ne: 'allowed' } } }, ...(opts.all ? [] : [missing, { $match: { r: { $size: 0 } } }]), { $sort: { seq: 1 } },
   ]);
   for await (const e of entries) {
     await recordEntry(db, e);
@@ -70,7 +75,7 @@ export async function catchUp(db: Db): Promise<{ actions: number; messages: numb
   }
   const msgs = db.collection('messages').aggregate([
     { $match: { role: { $in: ['user', 'agent'] }, generating: false, text: { $ne: '' } } },
-    missing, { $match: { r: { $size: 0 } } },
+    ...(opts.all ? [] : [missing, { $match: { r: { $size: 0 } } }]),
   ]);
   for await (const m of msgs) {
     await recordMessage(db, m);

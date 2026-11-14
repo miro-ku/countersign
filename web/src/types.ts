@@ -15,6 +15,14 @@ export interface Agent {
   createdAt: string;
 }
 
+export interface Rule {
+  _id: string;
+  agentId: string | null;
+  match: { action?: string; kind?: 'read' | 'write'; actionPattern?: string; argsPattern?: string };
+  effect: 'allow' | 'ask' | 'deny';
+  reason: string;
+}
+
 export interface Connection {
   _id: string;
   agentId: string;
@@ -23,6 +31,8 @@ export interface Connection {
   composioUserId?: string;
   composioAccountId?: string;
   status: 'pending' | 'active' | 'revoked';
+  /** The authorization was never finished, or no longer works. */
+  stale?: boolean;
   connectedAt?: string;
   revokedAt?: string;
 }

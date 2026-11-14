@@ -1,0 +1,17 @@
+const U='http://localhost:5173';
+const txt=async()=>await page.evaluate(()=>document.body.innerText);
+const waitFor=async(pred,ms=90000)=>{const t=Date.now();while(Date.now()-t<ms){const b=await txt();if(pred(b))return +((Date.now()-t)/1000).toFixed(1);await sleep(250);}return -1;};
+const shot=async(n)=>{await fs.mkdir('./artifacts',{recursive:true});await page.screenshot({path:'./artifacts/'+n+'.png'});console.log('SHOT',pwd+'/artifacts/'+n+'.png');};
+const out=async()=>{};
+const P='/?agent=6af8a22b7939d2b1cc59670e&conversation=6af8a22c7939d2b1cc59670f';
+await openTab(U+P);
+const box=page.getByRole('textbox',{name:'Message'});
+await box.fill("Without using any tools, write a 300-word story about a refund.");
+await box.press('Enter');
+await waitFor(b=>/writing…/.test(b),20000); await sleep(3000);
+console.log('Stop buttons while running',await page.getByRole('button',{name:'Stop'}).count());
+await page.getByRole('button',{name:'Stop'}).first().click();
+console.log('stop visible secs',await waitFor(b=>!/writing…/.test(b),20000));
+await box.fill("Say just the word: ready");
+await box.press('Enter');
+console.log('next turn after stop secs',await waitFor(b=>!/writing…/.test(b)&&/\bready\b/i.test(b.split('Say just the word: ready').pop().split('Ledger')[0]),60000));

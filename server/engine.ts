@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Provider, ProviderDriver, ProviderEvent, ProviderSession, Step } from '../shared/types.js';
 import { col, newId, nextSeq, type ConversationDoc, type MessageDoc } from './db.js';
-import { closeOpenAsks, mintToken, releaseHeldCalls, revokeToken, setRunningExecution, whenLateApproval } from './gateway/index.js';
+import { closeOpenAsks, hasTools, mintToken, releaseHeldCalls, revokeToken, setRunningExecution, whenLateApproval } from './gateway/index.js';
+import { RECORD_PROMPT_LINE } from './search/index.js';
 
 const PORT = Number(process.env.PORT || 4100);
 const IDLE_MS = 15 * 60 * 1000;
@@ -221,7 +222,8 @@ async function runTurn(conversationId: string) {
       const token = mintToken({ agentId: agent._id, conversationId, provider: p as Provider });
       const session = await driver.start({
         conversationId,
-        systemPrompt: `${agent.instructions.trim()}\n\n${DELIVERY_NOTE}`,
+        systemPrompt: [agent.instructions.trim(), DELIVERY_NOTE, (await hasTools(agent._id)) ? RECORD_PROMPT_LINE : '']
+          .filter(Boolean).join('\n\n'),
         resumeSessionId: rec?.sessionId,
         mcp: { name: 'gateway', url: `http://127.0.0.1:${PORT}/mcp/${token}` },
         cwd: scratchDir(conversationId),

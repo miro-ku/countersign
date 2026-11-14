@@ -57,12 +57,23 @@ export function composioClient(): Composio | null {
 
 const authConfigIds = new Map<string, string>();
 
-/** The project's Composio-managed auth config for a toolkit, made on first use. */
+/** A managed config asking only for what the demo uses (Slack: 5 scopes instead of 47). */
+export const NARROW_SUFFIX = ' (demo scopes)';
+const narrowWanted = () => process.env.COMPOSIO_NARROW_SCOPES === '1';
+
+/**
+ * The project's Composio-managed auth config for a toolkit, made on first use.
+ * With COMPOSIO_NARROW_SCOPES=1, the "<toolkit> (demo scopes)" config is used
+ * when one exists; otherwise always the full one.
+ */
 export async function ensureAuthConfig(composio: Composio, toolkit: string): Promise<string> {
   const known = authConfigIds.get(toolkit);
   if (known) return known;
   const list = await composio.authConfigs.list({ toolkit });
-  const existing = list.items.find((a: any) => a.isComposioManaged && a.status !== 'DISABLED') ?? list.items[0];
+  const usable = list.items.filter((a: any) => a.status !== 'DISABLED');
+  const isNarrow = (a: any) => String(a.name ?? '').endsWith(NARROW_SUFFIX);
+  const narrow = narrowWanted() ? usable.find((a: any) => a.isComposioManaged && isNarrow(a)) : undefined;
+  const existing = narrow ?? usable.find((a: any) => a.isComposioManaged && !isNarrow(a)) ?? usable.find((a: any) => !isNarrow(a));
   const id = existing
     ? existing.id
     : (await composio.authConfigs.create(toolkit, { type: 'use_composio_managed_auth', name: `${toolkit} (managed)` })).id;
@@ -95,16 +106,23 @@ function str(v: unknown): string {
   return typeof v === 'string' ? v : v == null ? '' : JSON.stringify(v);
 }
 
-function channelName(channel: unknown): string {
+const SLACK_ID = /^[CGD][A-Z0-9]{6,}$/;
+
+/** A channel id's name, when known. */
+export type ChannelNames = (id: string) => string | undefined;
+
+function channelName(channel: unknown, names?: ChannelNames): string {
   const c = str(channel).trim();
   if (!c) return 'a channel';
   if (c.startsWith('#') || c.startsWith('@')) return c;
-  // Slack ids (C…, G…, D…) read as they are; names get the usual #.
-  return /^[CGD][A-Z0-9]{6,}$/.test(c) ? c : `#${c}`;
+  if (!SLACK_ID.test(c)) return `#${c}`;
+  // A Slack id reads as its name when we know it, and as the id otherwise.
+  const name = names?.(c);
+  return name ? `#${name}` : c;
 }
 
 /** Plain words a person can approve on a projector or hear on a call. */
-export function summarize(slug: string, args: Record<string, unknown>): string {
+export function summarize(slug: string, args: Record<string, unknown>, names?: ChannelNames): string {
   switch (slug) {
     case 'GMAIL_SEND_EMAIL': {
       const to = [args.recipient_email, ...(Array.isArray(args.extra_recipients) ? args.extra_recipients : [])]
@@ -116,12 +134,12 @@ export function summarize(slug: string, args: Record<string, unknown>): string {
     }
     case SLACK_POST: {
       const text = str(args.markdown_text ?? args.text ?? args.fallback_text);
-      const where = channelName(args.channel);
+      const where = channelName(args.channel, names);
       const thread = args.thread_ts ? ' (in a thread)' : '';
       return clip(text ? `post to ${where}${thread}: '${text}'` : `post a message to ${where}${thread}`);
     }
     case SLACK_DELETE:
-      return clip(`delete the Slack message ${str(args.ts)} in ${channelName(args.channel)}`);
+      return clip(`delete the Slack message ${str(args.ts)} in ${channelName(args.channel, names)}`);
     case 'SLACK_LIST_ALL_CHANNELS':
       return 'list the Slack channels';
     default:
@@ -169,6 +187,8 @@ interface SessionEntry {
 }
 
 const SESSION_TTL_MS = 30 * 60_000;
+const CHANNELS_TTL_MS = 10 * 60_000;
+const CHANNELS_WAIT_MS = 4000;
 
 export function createSource(db: Db, composio: Composio): ComposioSource {
   const connections = connectionsOf(db);
@@ -176,6 +196,52 @@ export function createSource(db: Db, composio: Composio): ComposioSource {
   // The connection id for each toolkit, per agent, as of the last tools() call.
   // actionsOf is synchronous, so it reads this; run() re-checks the database.
   const known = new Map<string, Map<string, string>>();
+  // Slack channel names by id, per connection, learned from Slack results.
+  const channels = new Map<string, { names: Map<string, string>; at: number }>();
+
+  function learnChannels(connectionId: string, data: unknown) {
+    let entry = channels.get(connectionId);
+    const seen = new Set<unknown>();
+    const walk = (v: unknown, depth: number) => {
+      if (!v || typeof v !== 'object' || depth > 6 || seen.has(v)) return;
+      seen.add(v);
+      if (Array.isArray(v)) return v.forEach((x) => walk(x, depth + 1));
+      const o = v as Record<string, unknown>;
+      if (typeof o.id === 'string' && SLACK_ID.test(o.id) && typeof o.name === 'string' && o.name) {
+        if (!entry) channels.set(connectionId, (entry = { names: new Map(), at: Date.now() }));
+        entry.names.set(o.id, o.name);
+      }
+      for (const x of Object.values(o)) walk(x, depth + 1);
+    };
+    walk(data, 0);
+  }
+
+  /** Loads the channel list of a Slack connection once, so ids read as names in asks. */
+  async function primeChannels(agentId: string, connection: ConnectionRecord) {
+    const cached = channels.get(connection._id);
+    if (cached && Date.now() - cached.at < CHANNELS_TTL_MS) return;
+    const load = (async () => {
+      const { session } = await liveSession(agentId);
+      const res = await session.execute('SLACK_LIST_ALL_CHANNELS', { limit: 200, exclude_archived: true, types: 'public_channel,private_channel' });
+      if (res.resultType !== 'completed') return;
+      channels.set(connection._id, { names: channels.get(connection._id)?.names ?? new Map(), at: Date.now() });
+      learnChannels(connection._id, res.data);
+    })().catch(() => {});
+    // An empty cache waits a little; a stale one refreshes in the background.
+    if (!cached) await Promise.race([load, new Promise((r) => setTimeout(r, CHANNELS_WAIT_MS))]);
+  }
+
+  function namesFor(agentId?: string): ChannelNames {
+    return (id) => {
+      const connectionId = connectionFor('SLACK_', agentId);
+      if (connectionId) return channels.get(connectionId)?.names.get(id);
+      for (const c of channels.values()) {
+        const n = c.names.get(id);
+        if (n) return n;
+      }
+      return undefined;
+    };
+  }
 
   async function activeConnections(agentId: string) {
     const list = await connections.find({ agentId, status: 'active' }).sort({ connectedAt: -1 }).toArray();
@@ -240,7 +306,10 @@ export function createSource(db: Db, composio: Composio): ComposioSource {
     async tools(agentId) {
       const active = await activeConnections(agentId);
       if (active.size === 0) return [];
-      return (await sessionFor(agentId, active)).tools;
+      const entry = await sessionFor(agentId, active);
+      const slack = active.get('slack');
+      if (slack) await primeChannels(agentId, slack);
+      return entry.tools;
     },
 
     // The optional third argument names the agent, so the connection id is that
@@ -264,7 +333,7 @@ export function createSource(db: Db, composio: Composio): ComposioSource {
             name: e.tool_slug,
             kind: kindOf(e.tool_slug),
             args: e.arguments,
-            summary: summarize(e.tool_slug, e.arguments),
+            summary: summarize(e.tool_slug, e.arguments, namesFor(ctx?.agentId)),
           };
           const connectionId = connectionFor(e.tool_slug, ctx?.agentId);
           if (connectionId) action.connectionId = connectionId;
@@ -299,6 +368,7 @@ export function createSource(db: Db, composio: Composio): ComposioSource {
           const connection = active.get(toolkitOf(e.tool_slug))!;
           try {
             const res = await session.execute(e.tool_slug, e.arguments);
+            if (toolkitOf(e.tool_slug) === 'slack') learnChannels(connection._id, res.data);
             return {
               tool_slug: e.tool_slug,
               arguments: e.arguments,

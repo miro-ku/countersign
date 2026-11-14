@@ -24,7 +24,7 @@ console.log(" open asks:",r.asks.filter(a=>a.status==="open").length);
 for(const e of r.ledger.reverse())console.log(" ledger",e.seq,e.outcome,e.action,JSON.stringify(e.args),e.provider,e.decidedBy||"",JSON.stringify(e.result??"").slice(0,90));})'
 }
 
-AID=$(curl -s -XPOST $B/agents -H "$J" -d '{"name":"Notebook","instructions":"You keep notes for Miro. Use your tools; do exactly what is asked.","defaultProvider":"claude-code"}' | field ._id)
+AID=$(curl -s -XPOST $B/agents -H "$J" -d '{"name":"Notebook","instructions":"You keep notes for Miro. Use your tools; do exactly what is asked.","defaultProvider":"claude-code","testTools":true}' | field ._id)
 CID=$(curl -s -XPOST $B/conversations -H "$J" -d "{\"agentId\":\"$AID\"}" | field ._id)
 echo "agent $AID conversation $CID"
 curl -sN $B/conversations/$CID/events > /tmp/e2e-events-$CID.log & SSE=$!

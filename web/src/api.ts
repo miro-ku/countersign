@@ -2,7 +2,7 @@
 // conversation live (snapshot first, then the event stream).
 import { useEffect, useRef, useState } from 'react';
 import type {
-  Agent, Ask, Connection, Conversation, Execution, LedgerRow, Message, Provider, StreamEvent,
+  Agent, Ask, Connection, Conversation, Execution, LedgerRow, Message, Provider, Rule, StreamEvent,
 } from './types.ts';
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -41,9 +41,19 @@ export const api = {
   connect: (agentId: string, toolkit: string) =>
     call<{ redirectUrl: string }>('POST', `/api/agents/${agentId}/connections`, { toolkit }),
   disconnect: (connectionId: string) => call('DELETE', `/api/connections/${connectionId}`),
-  latestConversation: async (agentId: string) => {
+  listConversations: async (agentId: string) => {
     const d = await call<any>('GET', `/api/conversations?agentId=${agentId}`);
-    return ((Array.isArray(d) ? d : d?.conversations ?? []) as Conversation[])[0] ?? null;
+    return (Array.isArray(d) ? d : d?.conversations ?? []) as Conversation[];
+  },
+  latestConversation: async (agentId: string) => (await api.listConversations(agentId))[0] ?? null,
+  /** The rules that apply to an agent, in order. Falls back to the full list while the filtered one is missing. */
+  rules: async (agentId: string): Promise<Rule[]> => {
+    try {
+      const d = await call<any>('GET', `/api/rules?agentId=${agentId}`);
+      if (Array.isArray(d)) return d;
+    } catch { /* fall through */ }
+    const all = await call<Rule[]>('GET', '/api/rules');
+    return all.filter((r) => r.agentId === agentId || r.agentId == null);
   },
   createConversation: async (agentId: string) =>
     unwrap<Conversation>(await call('POST', '/api/conversations', { agentId }), 'conversation'),
@@ -77,16 +87,6 @@ const empty: Live = {
 const byId = <T extends { _id: string }>(list: T[] | undefined): ById<T> =>
   Object.fromEntries((list ?? []).map((d) => [d._id, d]));
 
-function savedAsks(conversationId: string): ById<Ask> {
-  try { return JSON.parse(localStorage.getItem(`asks:${conversationId}`) ?? '{}'); } catch { return {}; }
-}
-function saveAsk(ask: Ask) {
-  if (ask.status === 'open') return;
-  const all = savedAsks(ask.conversationId);
-  all[ask._id] = ask;
-  localStorage.setItem(`asks:${ask.conversationId}`, JSON.stringify(all));
-}
-
 /** Keeps one conversation's documents in local state, upserted by `_id`. */
 export function useConversation(conversationId: string | null, agentId: string | null): Live {
   const [live, setLive] = useState<Live>(empty);
@@ -108,8 +108,8 @@ export function useConversation(conversationId: string | null, agentId: string |
         ...prev,
         conversation: snap.conversation ?? null,
         messages: byId(snap.messages),
-        // The snapshot holds only open asks; answered ones we saw are kept locally.
-        asks: { ...savedAsks(conversationId), ...prev.asks, ...byId(snap.asks ?? snap.openAsks) },
+        // The snapshot carries asks of every status, so answered ones keep their summary.
+        asks: { ...prev.asks, ...byId(snap.asks) },
         ledger: { ...prev.ledger, ...byId(snap.ledger ?? snap.ledgerEntries ?? snap.entries) },
         executions: { ...prev.executions, ...byId(snap.executions) },
         connections: byId(conns),
@@ -120,7 +120,7 @@ export function useConversation(conversationId: string | null, agentId: string |
       setLive((prev) => {
         switch (ev.type) {
           case 'message': return { ...prev, messages: { ...prev.messages, [ev.message._id]: ev.message } };
-          case 'ask': saveAsk(ev.ask); return { ...prev, asks: { ...prev.asks, [ev.ask._id]: ev.ask } };
+          case 'ask': return { ...prev, asks: { ...prev.asks, [ev.ask._id]: ev.ask } };
           case 'ledger': return { ...prev, ledger: { ...prev.ledger, [ev.entry._id]: ev.entry } };
           case 'conversation': return { ...prev, conversation: ev.conversation };
           case 'execution': return { ...prev, executions: { ...prev.executions, [ev.execution._id]: ev.execution } };

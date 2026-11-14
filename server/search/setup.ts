@@ -49,7 +49,7 @@ export async function setupSearch(db: Db, log: (s: string) => void = console.log
   await col.createIndex({ agentId: 1, at: -1 });
   log(`${exists ? 'updated' : 'created'} ${RECORD}`);
 
-  const [current] = await col.listSearchIndexes(RECORD_INDEX).toArray();
+  const [current] = (await col.listSearchIndexes(RECORD_INDEX).toArray()) as any[];
   if (!current) {
     await col.createSearchIndex({ name: RECORD_INDEX, type: 'vectorSearch', definition: recordIndexDefinition } as any);
     log(`created vector index ${RECORD_INDEX}`);
@@ -58,7 +58,7 @@ export async function setupSearch(db: Db, log: (s: string) => void = console.log
     log(`updated vector index ${RECORD_INDEX}`);
   }
   for (let i = 0; ; i++) {
-    const [ix] = await col.listSearchIndexes(RECORD_INDEX).toArray();
+    const [ix] = (await col.listSearchIndexes(RECORD_INDEX).toArray()) as any[];
     if (ix?.queryable && ix.status === 'READY') break;
     if (ix?.status === 'FAILED') throw new Error(`vector index ${RECORD_INDEX} failed to build`);
     if (i % 6 === 0) log(`waiting for ${RECORD_INDEX} (${ix?.status ?? 'missing'})`);
