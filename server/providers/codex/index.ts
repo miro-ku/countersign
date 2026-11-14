@@ -8,6 +8,10 @@ import { spawn, execFile, type ChildProcessWithoutNullStreams } from 'node:child
 import readline from 'node:readline';
 import type { ProviderDriver, ProviderEvent, ProviderSession, ProviderStart } from '../../../shared/types.js';
 
+// How hard the model thinks on a turn. The work here is short tool calls, so
+// a quick answer matters more than a deep one. CODEX_EFFORT overrides it.
+const EFFORT = process.env.CODEX_EFFORT || 'low';
+
 const CODEX_BIN = process.env.CODEX_BIN ?? 'codex';
 /** The gateway may hold a call for 4 minutes while a person decides. */
 const TOOL_TIMEOUT_SEC = 300;
@@ -303,6 +307,7 @@ class CodexSession implements ProviderSession {
       approvalsReviewer: 'user',
       developerInstructions: this.o.systemPrompt,
       config: {
+        model_reasoning_effort: EFFORT,
         mcp_servers: {
           ...Object.fromEntries(off.filter((n) => n !== this.o.mcp.name).map((n) => [n, { enabled: false }])),
           [this.o.mcp.name]: {
@@ -342,7 +347,7 @@ class CodexSession implements ProviderSession {
     this.turnError = undefined;
     this.messageCount = 0;
     this.turnId = null;
-    this.request('turn/start', { threadId: this.threadId, input: [{ type: 'text', text, text_elements: [] }] })
+    this.request('turn/start', { threadId: this.threadId, input: [{ type: 'text', text, text_elements: [] }], effort: EFFORT })
       .then((r) => {
         if (this.turnActive && !this.turnId) this.turnId = r?.turn?.id ?? null;
       })
