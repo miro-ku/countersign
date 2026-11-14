@@ -5,7 +5,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
 
-export function startNotesServer(port: number, holdMs: number, log = console.log) {
+export function startNotesServer(port: number, fixedHoldMs: number, log = console.log, holdOf?: () => number) {
   const build = () => {
     const server = new McpServer({ name: 'gateway', version: '0.0.1' });
     server.registerTool(
@@ -13,6 +13,7 @@ export function startNotesServer(port: number, holdMs: number, log = console.log
       { description: 'Add a note to the notes list.', inputSchema: { text: z.string() } },
       async ({ text }) => {
         const at = Date.now();
+        const holdMs = holdOf ? holdOf() : fixedHoldMs;
         log(`[mcp] notes_add called text=${JSON.stringify(text)}; holding ${holdMs}ms`);
         await new Promise((r) => setTimeout(r, holdMs));
         log(`[mcp] notes_add answering after ${Date.now() - at}ms`);

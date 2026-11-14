@@ -129,11 +129,15 @@ const unhold = (id: string) => {
 type Release = 'approved' | 'declined' | 'replied' | 'stopped' | 'timeout' | 'moved';
 
 // Held calls by conversation, so a switch can let go of the old provider's.
-const holders = new Map<string, Set<{ provider: string; release: () => void }>>();
+const holders = new Map<string, Set<{ provider: string; release: (why: 'moved' | 'stopped') => void }>>();
 
-/** Lets go of a provider's held calls in a conversation. Their asks stay open. */
-export function releaseHeldCalls(conversationId: string, provider: string) {
-  for (const h of holders.get(conversationId) ?? []) if (h.provider === provider) h.release();
+/**
+ * Lets go of a provider's held calls in a conversation at once, without
+ * waiting for the client to hang up (an interrupted provider may never do so).
+ * `moved` (a switch) leaves their asks open; `stopped` goes with asks marked stopped.
+ */
+export function releaseHeldCalls(conversationId: string, provider: string, why: 'moved' | 'stopped') {
+  for (const h of [...(holders.get(conversationId) ?? [])]) if (h.provider === provider) h.release(why);
 }
 
 function waitForAnswers(askIds: string[], who: { conversationId: string; provider: string }, signal?: AbortSignal): Promise<Release> {
@@ -141,9 +145,11 @@ function waitForAnswers(askIds: string[], who: { conversationId: string; provide
     const status = new Map<string, AskDoc['status']>();
 
     let settled = false;
+    const since = Date.now();
     const settle = (result: Release) => {
       if (settled) return;
       settled = true;
+      console.log(`gateway: held call released (${result}) after ${((Date.now() - since) / 1000).toFixed(1)}s`);
       clearTimeout(timer);
       changes.off('change', onChange);
       holders.get(who.conversationId)?.delete(holder);
@@ -166,7 +172,7 @@ function waitForAnswers(askIds: string[], who: { conversationId: string; provide
     changes.on('change', onChange);
     // The provider hung up (an interrupted turn): stop holding. The ask stays open.
     signal?.addEventListener('abort', () => settle('timeout'), { once: true });
-    const holder = { provider: who.provider, release: () => settle('moved') };
+    const holder = { provider: who.provider, release: (why: 'moved' | 'stopped') => settle(why) };
     if (!holders.has(who.conversationId)) holders.set(who.conversationId, new Set());
     holders.get(who.conversationId)!.add(holder);
     // An answer may have landed before we started listening.

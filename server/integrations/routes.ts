@@ -18,8 +18,13 @@ const WEB_URL = () => process.env.WEB_URL || 'http://localhost:5173';
 /** How long the return from Composio waits for the account to turn active. */
 const CONFIRM_MS = 8000;
 
+/** A pending link nobody finished within this long is shown as stale. */
+const STALE_MS = 15 * 60_000;
+
 function publicView(c: ConnectionRecord) {
   return {
+    /** true for a pending link started over 15 minutes ago and never finished. */
+    stale: c.status === 'pending' && Date.now() - (c.createdAt?.getTime() ?? 0) > STALE_MS,
     _id: c._id,
     agentId: c.agentId,
     toolkit: c.toolkit,
@@ -57,7 +62,7 @@ export function registerConnectionRoutes(api: Hono, db: Db): void {
   });
 
   /** Starts a connection; the result is the page to send the person to, or an error. */
-  async function start(agentId: string, rawToolkit: unknown): Promise<{ redirectUrl: string; connectionId: string } | { error: string; status: 400 | 404 | 502 | 503 }> {
+  async function start(agentId: string, rawToolkit: unknown): Promise<{ redirectUrl: string; connectionId: string } | { error: string; status: 400 | 404 | 409 | 502 | 503 }> {
     const composio = composioClient();
     if (!composio) return { error: 'Connecting apps is off: COMPOSIO_API_KEY is not set.', status: 503 };
     const toolkit = String(rawToolkit ?? '').toLowerCase();
@@ -67,24 +72,40 @@ export function registerConnectionRoutes(api: Hono, db: Db): void {
     if (!(await agents.findOne({ _id: agentId }))) return { error: 'No such agent.', status: 404 };
 
     const authConfigId = await ensureAuthConfig(composio, toolkit);
-    const id = new ObjectId().toHexString();
+    // At most one pending attempt per agent and app: a new attempt takes over
+    // the old record (same id, so the old link's return still finds it).
+    const previous = await connections.findOne({ agentId, toolkit, status: 'pending' }, { sort: { createdAt: -1 } });
+    const id = previous?._id ?? new ObjectId().toHexString();
     const userId = composioUserId(agentId);
     const callbackUrl = `${SERVER_URL()}/api/connections/callback?connection=${id}`;
     const request = await composio.connectedAccounts.link(userId, authConfigId, { callbackUrl });
     if (!request.redirectUrl) return { error: 'Composio gave no authorization page.', status: 502 };
 
-    await connections.insertOne({
-      _id: id,
-      agentId,
-      ownerId: OWNER_ID,
-      toolkit,
-      composioUserId: userId,
-      composioAccountId: request.id,
-      status: 'pending',
-      connectedAt: null,
-      revokedAt: null,
-      createdAt: new Date(),
-    });
+    if (previous) {
+      const replaced = await connections.findOneAndUpdate(
+        { _id: id, status: 'pending' },
+        { $set: { composioAccountId: request.id, createdAt: new Date() } },
+      );
+      if (replaced?.composioAccountId && replaced.composioAccountId !== request.id) {
+        composio.connectedAccounts.delete(replaced.composioAccountId).catch(() => {});
+      }
+      // Any other pending record of this agent and app is left over: drop it.
+      await connections.deleteMany({ agentId, toolkit, status: 'pending', _id: { $ne: id } });
+      if (!replaced) return { error: 'This connection changed while starting; try again.', status: 409 };
+    } else {
+      await connections.insertOne({
+        _id: id,
+        agentId,
+        ownerId: OWNER_ID,
+        toolkit,
+        composioUserId: userId,
+        composioAccountId: request.id,
+        status: 'pending',
+        connectedAt: null,
+        revokedAt: null,
+        createdAt: new Date(),
+      });
+    }
     return { redirectUrl: request.redirectUrl, connectionId: id };
   }
 

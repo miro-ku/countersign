@@ -28,6 +28,7 @@ const OFF = process.env.NO_OFF ? [] : [
   'features.computer_use=false', 'features.in_app_browser=false', 'features.tool_suggest=false',
   'features.goals=false', 'features.skill_search=false', 'features.sleep_tool=false',
   'web_search="disabled"',
+  ...(process.env.EXTRA_C ?? '').split(';').filter(Boolean),
   ...(process.env.EXTRA_OFF ?? '').split(',').filter(Boolean).map((f) => `features.${f}=false`),
 ];
 const args = [...OFF.flatMap((c) => ['-c', c]), 'app-server'];

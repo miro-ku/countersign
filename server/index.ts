@@ -1,6 +1,6 @@
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
-import { client } from './db.js';
+import { client, col } from './db.js';
 import { startChangeStreams, stopChangeStreams } from './changes.js';
 import { closeAllSessions, registerDriver } from './engine.js';
 import { registerGateway } from './gateway/index.js';
@@ -18,6 +18,15 @@ if (process.env.TEST_PROVIDER) registerDriver(claudeCodeDriver, process.env.TEST
 await client.connect();
 startChangeStreams();
 
+// Turns cut off by a restart: their sessions are gone, so close them.
+const endedAt = new Date();
+const cut = await col.executions.updateMany(
+  { status: 'running' },
+  { $set: { status: 'failed', endedAt, error: 'The server restarted during this turn.' } },
+);
+await col.messages.updateMany({ generating: true }, { $set: { generating: false } });
+if (cut.modifiedCount) console.log(`closed ${cut.modifiedCount} turn(s) cut off by a restart`);
+
 const app = new Hono();
 app.get('/health', (c) => c.json({ ok: true }));
 app.route('/api', createApi());
@@ -32,7 +41,7 @@ async function shutdown() {
   stopChangeStreams();
   await closeAllSessions();
   server.close();
-  await client.close();
+  await client.close().catch(() => {});
   process.exit(0);
 }
 process.on('SIGINT', shutdown);

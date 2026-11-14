@@ -295,6 +295,7 @@ export async function stopTurn(conversationId: string) {
   run.ending = 'stopped';
   await col.conversations.updateOne({ _id: conversationId }, { $set: { stoppedNote: true } });
   await closeOpenAsks({ conversationId, executionId: run.executionId }, 'stopped');
+  releaseHeldCalls(conversationId, run.provider, 'stopped');
   await warm.get(run.key)?.session.interrupt();
   return { stopped: true };
 }
@@ -309,7 +310,7 @@ export async function switchProvider(conversationId: string, provider: string): 
   if (run && run.provider !== provider) {
     // Open asks stay open; the next turn runs on the new provider.
     run.ending = 'handed_off';
-    releaseHeldCalls(conversationId, run.provider);
+    releaseHeldCalls(conversationId, run.provider, 'moved');
     await warm.get(run.key)?.session.interrupt();
     // The new provider carries on from where the old one was cut off.
     kick(conversationId);
