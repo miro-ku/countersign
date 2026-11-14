@@ -1,0 +1,15 @@
+const U='http://localhost:5173';
+const txt=async()=>await page.evaluate(()=>document.body.innerText);
+const waitFor=async(pred,ms=90000)=>{const t=Date.now();while(Date.now()-t<ms){const b=await txt();if(pred(b))return +((Date.now()-t)/1000).toFixed(1);await sleep(250);}return -1;};
+const shot=async(n)=>{await fs.mkdir('./artifacts',{recursive:true});await page.screenshot({path:'./artifacts/'+n+'.png'});console.log('SHOT',pwd+'/artifacts/'+n+'.png');};
+await openTab(U);
+await page.getByRole('button',{name:'New agent'}).first().click();
+await page.locator('#agent-title').fill('Rehearsal 1');
+await page.locator('#agent-instructions').fill('You help the team send customer updates in Slack.\nKeep messages short and factual.');
+const s=await snapshot(page,{selector:'[role="dialog"]'}); console.log(s.tree);
+const t0=Date.now();
+await page.getByRole('button',{name:'Create agent'}).click();
+const w=await waitFor(b=>b.includes('Rehearsal 1')&&!b.includes('Create agent'),20000);
+console.log('create secs',w, 'url',page.url());
+await shot('r1-row1');
+console.log((await snapshot(page)).tree);

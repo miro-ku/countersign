@@ -1,5 +1,6 @@
 // Fires several turn starts at once (messages and a switch) and checks the
 // turns never overlapped and only one reply was ever generating.
+// Usage: pnpm exec tsx spikes/oneturn.mts
 const API = process.env.API_URL ?? 'http://localhost:4100/api';
 const post = (path: string, body: unknown) =>
   fetch(API + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());

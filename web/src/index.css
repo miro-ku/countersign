@@ -131,9 +131,6 @@
     @apply font-sans;
     }
 }
-/* Projector scale: every rem grows with this. */
-html { font-size: 17px; }
-
-@keyframes ledger-arrive { from { background: oklch(0.96 0.05 160); transform: translateY(-4px); } to { transform: none; } }
-.ledger-arrive { animation: ledger-arrive .8s ease-out; }
+@keyframes ledger-arrive { from { background: oklch(0.97 0.03 160); } to { background: transparent; } }
+.ledger-arrive { animation: ledger-arrive 1.2s ease-out; }
 #voice-slot:empty { display: none; }

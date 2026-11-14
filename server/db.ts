@@ -5,7 +5,9 @@ config({ quiet: true });
 
 export const OWNER_ID = 'miro';
 
-const uri = process.env.MONGODB_URI;
+// The running server connects as the restricted app user when one is configured:
+// it may append to `ledger` and read it, never change or remove an entry.
+const uri = process.env.MONGODB_APP_URI || process.env.MONGODB_URI;
 if (!uri) throw new Error('MONGODB_URI is missing from .env');
 
 export const client = new MongoClient(uri);

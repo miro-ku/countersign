@@ -6,6 +6,7 @@
     "dev": "concurrently -n server,web -c blue,green \"pnpm dev:server\" \"pnpm --dir web dev\"",
     "dev:server": "tsx watch server/index.ts",
     "setup:db": "tsx server/setupDb.ts",
+    "reset": "tsx scripts/reset.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

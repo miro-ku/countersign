@@ -1,0 +1,13 @@
+const U='http://localhost:5173';
+const txt=async()=>await page.evaluate(()=>document.body.innerText);
+const waitFor=async(pred,ms=90000)=>{const t=Date.now();while(Date.now()-t<ms){const b=await txt();if(pred(b))return +((Date.now()-t)/1000).toFixed(1);await sleep(250);}return -1;};
+const shot=async(n)=>{await fs.mkdir('./artifacts',{recursive:true});await page.screenshot({path:'./artifacts/'+n+'.png'});console.log('SHOT',pwd+'/artifacts/'+n+'.png');};
+await openTab(U+'/?agent=6af8a00f3ea029babf1a5652&conversation=6af8a00f3ea029babf1a5653');
+const t0=Date.now();
+await page.getByRole('button',{name:'Connect Slack'}).click();
+await page.waitForURL(u=>!String(u).startsWith(U),{timeout:20000}).catch(e=>console.log('nav wait',e.message));
+await sleep(2500);
+console.log('secs',(Date.now()-t0)/1000,'URL',page.url());
+await shot('r1-row2-a');
+console.log((await snapshot(page,{interactive:true})).tree);
+console.log((await txt()).slice(0,1500));

@@ -1,0 +1,15 @@
+const U='http://localhost:5173';
+const txt=async()=>await page.evaluate(()=>document.body.innerText);
+const waitFor=async(pred,ms=90000)=>{const t=Date.now();while(Date.now()-t<ms){const b=await txt();if(pred(b))return +((Date.now()-t)/1000).toFixed(1);await sleep(250);}return -1;};
+const shot=async(n)=>{await fs.mkdir('./artifacts',{recursive:true});await page.screenshot({path:'./artifacts/'+n+'.png'});console.log('SHOT',pwd+'/artifacts/'+n+'.png');};
+await openTab(U+'/?agent=6af8a00f3ea029babf1a5652&conversation=6af8a00f3ea029babf1a5653');
+console.log('LEDGER before',(await snapshot(page,{selector:'aside:last-of-type'})).tree);
+const t0=Date.now();
+await page.getByRole('button',{name:'Approve'}).click();
+const e=await waitFor(b=>/SLACK_SEND_MESSAGE\s*executed/.test(b)||/SLACK_SEND_MESSAGE\s*failed/.test(b),60000);
+console.log('executed secs',e);
+const r=await waitFor(b=>!/writing…/.test(b),60000);
+console.log('reply done secs',(Date.now()-t0)/1000);
+await shot('r1-row3-done');
+console.log((await snapshot(page,{selector:'main [role="log"]'})).tree);
+console.log('LEDGER',(await snapshot(page,{selector:'aside:last-of-type'})).tree);

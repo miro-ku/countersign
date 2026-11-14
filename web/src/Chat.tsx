@@ -22,9 +22,9 @@ type Item = { kind: 'message'; m: Msg } | { kind: 'ask'; a: Ask } | { kind: 'dec
 const time = (s?: string) => (s ? new Date(s).getTime() : 0);
 const toolName = (n: string) => n.replace(/^mcp__gateway__/, '');
 
-const PROVIDER_STYLE: Record<Provider, string> = {
-  'claude-code': 'bg-orange-100 text-orange-800 ring-orange-200',
-  codex: 'bg-zinc-900 text-white ring-zinc-900',
+const PROVIDER_DOT: Record<Provider, string> = {
+  'claude-code': 'bg-orange-500',
+  codex: 'bg-zinc-900',
 };
 
 /**
@@ -46,6 +46,8 @@ function timeline(live: Live): Item[] {
   let i = 0;
   for (const m of messages) {
     while (i < side.length && side[i].at < time(m.at)) items.push(side[i++].item);
+    const prev = items[items.length - 1];
+    if (m.role === 'event' && prev?.kind === 'message' && prev.m.role === 'event' && prev.m.text === m.text) continue;
     items.push({ kind: 'message', m });
   }
   while (i < side.length) items.push(side[i++].item);
@@ -61,13 +63,13 @@ export function Chat({ live, conversationId, agentId, running, onStop, fail }: {
   return (
     <>
       <Conversation key={conversationId} className="min-h-0">
-        <ConversationContent className="mx-auto w-full max-w-3xl gap-6 px-6 py-6">
+        <ConversationContent className="mx-auto w-full max-w-2xl gap-6 px-6 py-8">
           {items.length === 0 ? (
             <ConversationEmptyState
               className="min-h-[50vh]"
-              icon={<BotIcon className="size-10" />}
+              icon={<BotIcon className="size-6" />}
               title="New conversation"
-              description="Type a message, or start a call."
+              description="Ask it something. Anything that touches your apps is checked first."
             />
           ) : (
             items.map((it) =>
@@ -80,7 +82,7 @@ export function Chat({ live, conversationId, agentId, running, onStop, fail }: {
         <ConversationScrollButton />
       </Conversation>
 
-      <div className="mx-auto w-full max-w-3xl px-6 pb-5">
+      <div className="mx-auto w-full max-w-2xl px-6 pb-5">
         <div className="flex items-end gap-2">
           <PromptInput
             className="flex-1"
@@ -90,12 +92,10 @@ export function Chat({ live, conversationId, agentId, running, onStop, fail }: {
             }}
           >
             <PromptInputBody>
-              <PromptInputTextarea placeholder="Message the agent…" aria-label="Message" className="text-base" />
+              <PromptInputTextarea placeholder="Message the agent…" aria-label="Message" className="min-h-11 text-sm" />
             </PromptInputBody>
-            <PromptInputFooter>
-              <PromptInputTools>
-                <span className="px-2 text-xs text-muted-foreground">Enter to send · every tool call is checked first</span>
-              </PromptInputTools>
+            <PromptInputFooter className="pt-0">
+              <PromptInputTools />
               <PromptInputSubmit status={running ? 'streaming' : undefined} onStop={onStop} />
             </PromptInputFooter>
           </PromptInput>
@@ -110,7 +110,8 @@ export function Chat({ live, conversationId, agentId, running, onStop, fail }: {
 function ProviderBadge({ provider }: { provider?: Provider }) {
   if (!provider) return null;
   return (
-    <span className={cn('rounded-md px-2 py-0.5 text-xs font-semibold ring-1', PROVIDER_STYLE[provider])}>
+    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+      <span className={cn('size-1.5 rounded-full', PROVIDER_DOT[provider])} />
       {PROVIDER_LABEL[provider] ?? provider}
     </span>
   );
@@ -120,32 +121,32 @@ function MessageView({ m, asks }: { m: Msg; asks: Ask[] }) {
   if (m.role === 'event') {
     const text = m.text.replace(/\bclaude-code\b/g, 'Claude Code').replace(/\bcodex\b/g, 'Codex');
     return (
-      <div className="flex items-center gap-3 text-sm font-medium text-muted-foreground">
-        <div className="h-px flex-1 bg-border" />{text}<div className="h-px flex-1 bg-border" />
+      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+        <div className="h-px flex-1 bg-border/70" />{text}<div className="h-px flex-1 bg-border/70" />
       </div>
     );
   }
   if (m.role === 'user') {
     const spoken = m.source === 'voice';
     return (
-      <Message from="user">
-        <div className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
-          {spoken ? <MicIcon className="size-3.5" /> : <KeyboardIcon className="size-3.5" />}
-          Miro · {spoken ? 'spoken' : 'typed'}
-        </div>
-        <MessageContent className="text-base group-[.is-user]:bg-zinc-900 group-[.is-user]:text-white">
+      <Message from="user" className="max-w-[80%] gap-1">
+        <MessageContent className="rounded-2xl text-[15px] leading-relaxed group-[.is-user]:px-4 group-[.is-user]:py-2.5">
           {m.text}
         </MessageContent>
+        <div className="ml-auto flex items-center gap-1 pr-1 text-[11px] text-muted-foreground">
+          {spoken ? <MicIcon className="size-3" /> : <KeyboardIcon className="size-3" />}
+          {spoken ? 'spoken' : 'typed'}
+        </div>
       </Message>
     );
   }
   return (
-    <Message from="assistant">
+    <Message from="assistant" className="gap-1.5">
       <div className="flex items-center gap-2">
         <ProviderBadge provider={m.provider} />
         {m.generating && <Shimmer className="text-xs">writing…</Shimmer>}
       </div>
-      <MessageContent className="w-full text-base">
+      <MessageContent className="w-full gap-3 text-[15px] leading-relaxed">
         <Body m={m} asks={asks} />
       </MessageContent>
     </Message>
@@ -196,8 +197,8 @@ function ToolCall({ req, res, asks }: {
   const errorText = res?.isError ? (typeof res.output === 'string' ? res.output : JSON.stringify(res.output)) : undefined;
 
   return (
-    <Tool className="mb-0 bg-background">
-      <ToolHeader type="dynamic-tool" toolName={name} state={state} title={name} />
+    <Tool className="mb-0 rounded-lg bg-background">
+      <ToolHeader type="dynamic-tool" toolName={name} state={state} title={name} className="px-3 py-2 [&>div>span:not([data-slot])]:font-mono [&>div>span:not([data-slot])]:text-[13px] [&>div>span:not([data-slot])]:font-normal" />
       <ToolContent>
         <ToolInput input={req.input} />
         {res && <ToolOutput output={res.isError ? undefined : res.output} errorText={errorText} />}
@@ -210,9 +211,9 @@ function QuietLine({ kind, line, what }: { kind: string; line: string; what: str
   const tone = kind === 'approved' ? 'text-emerald-700 bg-emerald-100' : kind === 'declined' ? 'text-red-700 bg-red-100' : 'text-muted-foreground bg-muted';
   const Icon = kind === 'approved' ? CheckIcon : kind === 'declined' ? XIcon : MinusIcon;
   return (
-    <div className="flex min-w-0 items-center gap-2 text-sm">
-      <span className={cn('flex size-5 shrink-0 items-center justify-center rounded-full', tone)}><Icon className="size-3.5" /></span>
-      <span className={cn('shrink-0 font-semibold', tone.split(' ')[0])}>{line}</span>
+    <div className="flex min-w-0 items-center gap-2 text-xs">
+      <span className={cn('flex size-4 shrink-0 items-center justify-center rounded-full', tone)}><Icon className="size-3" /></span>
+      <span className={cn('shrink-0 font-medium', tone.split(' ')[0])}>{line}</span>
       <span className="truncate text-muted-foreground">· {what}</span>
     </div>
   );
@@ -245,26 +246,25 @@ function AskView({ a, fail }: { a: Ask; fail: (e: unknown) => void }) {
   };
 
   return (
-    <Confirmation approval={{ id: a._id }} state="approval-requested" className="gap-3 border-2 border-amber-400 bg-amber-50 p-5 shadow-md">
-      <ConfirmationTitle className="flex flex-col gap-1.5 text-foreground">
-        <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-amber-800">
-          <ShieldAlertIcon className="size-4" /> Needs your approval · asked on
-          <ProviderBadge provider={a.askedByProvider} />
+    <Confirmation approval={{ id: a._id }} state="approval-requested" className="gap-3 rounded-xl border-amber-300 bg-amber-50/70 p-4 shadow-sm">
+      <ConfirmationTitle className="flex flex-col gap-1 text-foreground">
+        <span className="flex items-center gap-1.5 text-xs font-medium text-amber-700">
+          <ShieldAlertIcon className="size-3.5" /> Approval needed · asked by {PROVIDER_LABEL[a.askedByProvider] ?? a.askedByProvider}
         </span>
-        <span className="text-xl font-semibold leading-snug">{a.summary}</span>
-        <span className="font-mono text-xs text-muted-foreground">{toolName(a.action)}</span>
+        <span className="text-base font-medium leading-snug">{a.summary}</span>
+        <span className="font-mono text-[11px] text-muted-foreground">{toolName(a.action)}</span>
       </ConfirmationTitle>
       <ConfirmationRequest>
         <div className="flex flex-wrap items-center gap-3">
           <ConfirmationActions className="justify-start">
-            <ConfirmationAction size="lg" disabled={busy} className="bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => answer('approve')}>
+            <ConfirmationAction size="sm" disabled={busy} className="bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => answer('approve')}>
               <CheckIcon /> Approve
             </ConfirmationAction>
-            <ConfirmationAction size="lg" variant="outline" disabled={busy} className="border-red-300 text-red-700 hover:bg-red-50" onClick={() => answer('decline')}>
+            <ConfirmationAction size="sm" variant="outline" disabled={busy} className="bg-background text-red-700 hover:bg-red-50 hover:text-red-700" onClick={() => answer('decline')}>
               <XIcon /> Reject
             </ConfirmationAction>
           </ConfirmationActions>
-          <label className="ml-2 flex cursor-pointer items-center gap-2 text-sm">
+          <label className="ml-1 flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
             <Checkbox checked={forConversation} onCheckedChange={(v) => setForConversation(v === true)} />
             for this conversation
           </label>

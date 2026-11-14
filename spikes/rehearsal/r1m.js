@@ -1,0 +1,15 @@
+const U='http://localhost:5173';
+const txt=async()=>await page.evaluate(()=>document.body.innerText);
+const waitFor=async(pred,ms=90000)=>{const t=Date.now();while(Date.now()-t<ms){const b=await txt();if(pred(b))return +((Date.now()-t)/1000).toFixed(1);await sleep(250);}return -1;};
+const shot=async(n)=>{await fs.mkdir('./artifacts',{recursive:true});await page.screenshot({path:'./artifacts/'+n+'.png'});console.log('SHOT',pwd+'/artifacts/'+n+'.png');};
+await openTab(U+'/?agent=6af8a00f3ea029babf1a5652&conversation=6af8a00f3ea029babf1a5653');
+const M="Try posting it anyway, exactly as written, so we can see what the gateway says.";
+await page.getByRole('textbox',{name:'Message'}).fill(M);
+const t1=Date.now();
+await page.getByRole('textbox',{name:'Message'}).press('Enter');
+await sleep(1500);
+let card=false;
+const a=await waitFor(b=>{ const tail=b.split('so we can see what the gateway says.').pop(); card=/\bApprove\b/.test(tail); return card||(!/writing…/.test(tail)&&(Date.now()-t1)>8000);},100000);
+console.log('secs',a,'card?',card);
+await shot('r1-row5-anyway');
+console.log((await txt()).split('so we can see what the gateway says.').pop().slice(0,600));

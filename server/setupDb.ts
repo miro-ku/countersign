@@ -1,6 +1,16 @@
 // Creates the collections with their validators and indexes, and the default
 // rules. Safe to run again: it updates what exists.
-import { client, db } from './db.js';
+import { config } from 'dotenv';
+import { MongoClient } from 'mongodb';
+
+config({ quiet: true });
+
+// Setup changes validators and indexes, which the server's own user may not do:
+// it runs as the admin user when MONGODB_ADMIN_URI is set.
+const uri = process.env.MONGODB_ADMIN_URI || process.env.MONGODB_URI;
+if (!uri) throw new Error('MONGODB_URI is missing from .env');
+const client = new MongoClient(uri);
+const db = client.db(process.env.MONGODB_DB || 'hackathon');
 
 const str = { bsonType: 'string' };
 const strOrNull = { bsonType: ['string', 'null'] };

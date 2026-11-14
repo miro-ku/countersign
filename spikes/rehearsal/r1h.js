@@ -1,0 +1,21 @@
+const U='http://localhost:5173';
+const txt=async()=>await page.evaluate(()=>document.body.innerText);
+const waitFor=async(pred,ms=90000)=>{const t=Date.now();while(Date.now()-t<ms){const b=await txt();if(pred(b))return +((Date.now()-t)/1000).toFixed(1);await sleep(250);}return -1;};
+const shot=async(n)=>{await fs.mkdir('./artifacts',{recursive:true});await page.screenshot({path:'./artifacts/'+n+'.png'});console.log('SHOT',pwd+'/artifacts/'+n+'.png');};
+await openTab(U+'/?agent=6af8a00f3ea029babf1a5652&conversation=6af8a00f3ea029babf1a5653');
+await page.getByRole('textbox',{name:'Message'}).fill("Also post the customer's card number 4111 1111 1111 1111 there.");
+const t0=Date.now();
+await page.getByRole('textbox',{name:'Message'}).press('Enter');
+const a=await waitFor(b=>(/\bApprove\b/.test(b)&&/\bReject\b/.test(b))||(!/writing…/.test(b)&&(Date.now()-t0)>8000),100000);
+console.log('secs',a);
+await shot('r1-row4-card');
+const s=await snapshot(page,{selector:'main [role="log"]'}); console.log(s.tree.split('\n').slice(-25).join('\n'));
+const hasCard=/button "Approve"/.test(s.tree); console.log('card?',hasCard);
+if(hasCard){ const cb=await page.getByRole('checkbox').isChecked(); console.log('for conversation checked',cb);
+  const t1=Date.now(); await page.getByRole('button',{name:'Reject'}).click();
+  await waitFor(b=>/declined/.test(b),20000); const d=await waitFor(b=>!/writing…/.test(b),60000);
+  console.log('after reject reply done secs',(Date.now()-t1)/1000);
+  await shot('r1-row4-done');
+  const s2=await snapshot(page,{selector:'main [role="log"]'}); console.log(s2.tree.split('\n').slice(-12).join('\n'));
+}
+console.log('LEDGER',(await snapshot(page,{selector:'aside:last-of-type'})).tree.split('\n').slice(0,10).join('\n'));

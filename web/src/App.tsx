@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BotIcon, MailIcon, MessageSquareIcon, PlusIcon, ShieldCheckIcon, SquarePenIcon, SquareIcon, WifiOffIcon, XIcon } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
+import { MailIcon, MessageSquareIcon, PlusIcon, ShieldCheckIcon, SquarePenIcon, SquareIcon, WifiOffIcon, XIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -94,85 +93,87 @@ export function App() {
   const stop = () => { if (conversationId) api.stop(conversationId).catch(fail); };
 
   return (
-    <div className="grid h-dvh grid-cols-[230px_minmax(0,1fr)_340px] bg-background text-foreground">
+    <div className="grid h-dvh grid-cols-[240px_minmax(0,1fr)_320px] bg-background text-foreground antialiased">
       {/* Agents */}
-      <aside className="flex min-h-0 flex-col border-r bg-muted/40">
-        <div className="flex h-16 shrink-0 items-center gap-2.5 border-b px-4">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-foreground text-background">
-            <ShieldCheckIcon className="size-5" />
+      <aside className="flex min-h-0 flex-col border-r bg-muted/30">
+        <div className="flex h-14 shrink-0 items-center gap-2 px-4">
+          <div className="flex size-6 items-center justify-center rounded-md bg-foreground text-background">
+            <ShieldCheckIcon className="size-3.5" />
           </div>
-          <div className="leading-tight">
-            <div className="font-semibold">Governed agents</div>
-            <div className="text-xs text-muted-foreground">Same rules, any engine</div>
-          </div>
+          <span className="text-sm font-semibold tracking-tight">Governed agents</span>
         </div>
-        <div className="px-4 pt-4 pb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Agents</div>
+        <div className="px-3 pb-2">
+          <Button variant="outline" size="sm" className="w-full justify-start bg-background" onClick={() => setCreating(true)}>
+            <PlusIcon /> New agent
+          </Button>
+        </div>
+        <div className="px-4 pt-3 pb-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Agents</div>
         <ScrollArea className="min-h-0 flex-1 px-2">
-          <div className="flex flex-col gap-0.5 pb-2">
+          <div className="flex flex-col pb-3">
             {agents.map((a) => (
               <button
                 key={a._id}
                 onClick={() => selectAgent(a)}
                 className={cn(
-                  'flex items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-accent',
-                  a._id === agentId && 'bg-background shadow-sm ring-1 ring-border',
+                  'flex items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent',
+                  a._id === agentId && 'bg-accent',
                 )}
               >
-                <BotIcon className="size-4 shrink-0 text-muted-foreground" />
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">{a.name}</div>
-                  <div className="text-xs text-muted-foreground">v{a.version} · {PROVIDER_LABEL[a.defaultProvider] ?? a.defaultProvider}</div>
-                </div>
+                <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-background text-xs font-medium text-muted-foreground ring-1 ring-border">
+                  {a.name.slice(0, 1).toUpperCase()}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-sm">{a.name}</span>
+                <span className="text-[11px] text-muted-foreground tabular-nums">v{a.version}</span>
               </button>
             ))}
-            {agents.length === 0 && serverUp && <p className="px-2.5 py-2 text-sm text-muted-foreground">No agents yet.</p>}
+            {agents.length === 0 && serverUp && <p className="px-2 py-1.5 text-sm text-muted-foreground">None yet</p>}
             {!serverUp && (
-              <p className="flex items-center gap-2 px-2.5 py-2 text-sm text-amber-700"><WifiOffIcon className="size-4" /> Server not answering</p>
+              <p className="flex items-center gap-2 px-2 py-1.5 text-xs text-amber-700"><WifiOffIcon className="size-3.5" /> Server not answering</p>
             )}
           </div>
         </ScrollArea>
-        <div className="border-t p-3">
-          <Button className="w-full" size="lg" onClick={() => setCreating(true)}><PlusIcon /> New agent</Button>
-        </div>
       </aside>
 
       {/* Conversation */}
       <main className="flex min-h-0 min-w-0 flex-col">
-        <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
+        <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
           {agent && conversationId ? (
             <>
-              <div className="flex min-w-[120px] flex-1 items-center gap-2">
-                <h1 className="truncate text-lg font-semibold">{agent.name}</h1>
-                <Badge variant="outline" className="font-mono">v{agent.version}</Badge>
+              <div className="flex min-w-0 flex-1 items-baseline gap-2">
+                <h1 className="truncate text-sm font-semibold">{agent.name}</h1>
+                <span className="text-xs text-muted-foreground tabular-nums">v{agent.version}</span>
               </div>
+              {running && (
+                <Button variant="ghost" size="sm" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={stop}>
+                  <SquareIcon className="size-3 fill-current" /> Stop
+                </Button>
+              )}
               <Tabs
                 value={conv?.provider ?? 'claude-code'}
                 onValueChange={(p) => { if (conv && p !== conv.provider) api.switchProvider(conv._id, p as Provider).catch(fail); }}
               >
-                <TabsList>
-                  <TabsTrigger value="claude-code" className="px-2.5" disabled={!conv}>Claude Code</TabsTrigger>
-                  <TabsTrigger value="codex" className="px-2.5" disabled={!conv}>Codex</TabsTrigger>
+                <TabsList className="h-8">
+                  <TabsTrigger value="claude-code" className="px-2.5 text-xs" disabled={!conv}>Claude Code</TabsTrigger>
+                  <TabsTrigger value="codex" className="px-2.5 text-xs" disabled={!conv}>Codex</TabsTrigger>
                 </TabsList>
               </Tabs>
-              {running && (
-                <Button variant="destructive" size="sm" onClick={stop}><SquareIcon className="fill-current" /> Stop</Button>
-              )}
+              <div className="mx-1 h-5 w-px bg-border" />
               <Apps agentId={agent._id} connections={Object.values(live.connections)} fail={fail} />
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" onClick={newConversation} aria-label="New conversation"><SquarePenIcon /></Button>
+                  <Button variant="ghost" size="icon-sm" onClick={newConversation} aria-label="New conversation"><SquarePenIcon /></Button>
                 </TooltipTrigger>
                 <TooltipContent>New conversation</TooltipContent>
               </Tooltip>
             </>
           ) : (
-            <span className="text-sm text-muted-foreground">Create an agent to begin</span>
+            <span className="text-sm text-muted-foreground">No agent selected</span>
           )}
         </header>
 
         {notice && (
           <div className={cn(
-            'mx-5 mt-3 flex items-start gap-3 rounded-lg border px-4 py-3 text-sm',
+            'mx-auto mt-3 flex w-full max-w-2xl items-center gap-3 rounded-md border px-3 py-2 text-sm',
             notice.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-red-200 bg-red-50 text-red-900',
           )}>
             <span className="flex-1">{notice.ok ? notice.text : `Something went wrong: ${notice.text}`}</span>
@@ -183,24 +184,21 @@ export function App() {
         {agent && conversationId ? (
           <>
             {!live.online && (
-              <p className="flex items-center gap-2 px-5 pt-2 text-sm font-medium text-amber-700"><WifiOffIcon className="size-4" /> Reconnecting…</p>
+              <p className="mx-auto flex w-full max-w-2xl items-center gap-2 px-6 pt-2 text-xs text-amber-700"><WifiOffIcon className="size-3.5" /> Reconnecting…</p>
             )}
             <Chat live={live} conversationId={conversationId} agentId={agent._id} running={running} onStop={stop} fail={fail} />
           </>
         ) : (
-          <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
-            <div className="flex size-16 items-center justify-center rounded-2xl bg-muted"><BotIcon className="size-8 text-muted-foreground" /></div>
-            <div className="space-y-1">
-              <h2 className="text-2xl font-semibold">{agents.length ? 'Pick an agent' : 'No agents yet'}</h2>
-              <p className="text-muted-foreground">Give it a name, instructions and an engine. Its rules come with it.</p>
-            </div>
-            <Button size="lg" onClick={() => setCreating(true)}><PlusIcon /> New agent</Button>
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
+            <h2 className="text-lg font-semibold tracking-tight">{agents.length ? 'Pick an agent' : 'Create your first agent'}</h2>
+            <p className="max-w-sm text-sm text-muted-foreground">Give it a name, instructions and an engine. Every tool call it makes is checked, asked about if needed, and recorded.</p>
+            <Button size="sm" className="mt-2" onClick={() => setCreating(true)}><PlusIcon /> New agent</Button>
           </div>
         )}
       </main>
 
       {/* Ledger */}
-      <aside className="flex min-h-0 flex-col border-l bg-muted/40">
+      <aside className="flex min-h-0 flex-col border-l">
         <Ledger entries={Object.values(live.ledger)} fail={fail} />
       </aside>
 
@@ -211,41 +209,42 @@ export function App() {
 
 function Apps({ agentId, connections, fail }: { agentId: string; connections: Connection[]; fail: (e: unknown) => void }) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1">
       {TOOLKITS.map(({ id, label, icon: Icon }) => {
         const c = connections
           .filter((x) => x.toolkit?.toLowerCase() === id && x.status !== 'revoked')
           .sort((a, b) => (a.status === 'active' ? -1 : 1) - (b.status === 'active' ? -1 : 1))[0];
         if (c?.status === 'active') {
           return (
-            <Badge key={id} variant="secondary" className="h-8 gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 pr-1 pl-2.5 text-sm text-emerald-800">
-              <span className="size-2 rounded-full bg-emerald-500" />
+            <span key={id} className="group/chip flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium">
+              <span className="size-1.5 rounded-full bg-emerald-500" />
               {label}
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button className="ml-0.5 rounded-full p-1 hover:bg-emerald-100" onClick={() => api.disconnect(c._id).catch(fail)} aria-label={`Disconnect ${label}`}>
-                    <XIcon className="size-3.5" />
+                  <button className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => api.disconnect(c._id).catch(fail)} aria-label={`Disconnect ${label}`}>
+                    <XIcon className="size-3" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>Disconnect {label}</TooltipContent>
               </Tooltip>
-            </Badge>
+            </span>
           );
         }
         return (
           <Tooltip key={id}>
             <TooltipTrigger asChild>
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
+                className="text-xs text-muted-foreground"
                 onClick={async () => {
                   try { location.href = (await api.connect(agentId, id)).redirectUrl; } catch (e) { fail(e); }
                 }}
               >
-                <PlusIcon /><Icon /> {label}
+                <Icon /> {c?.status === 'pending' ? `Finish ${label}` : `Connect ${label}`}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>{c?.status === 'pending' ? `Finish connecting ${label}` : `Connect ${label} to this agent`}</TooltipContent>
+            <TooltipContent>Give this agent access to your {label}</TooltipContent>
           </Tooltip>
         );
       })}

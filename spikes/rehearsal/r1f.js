@@ -1,0 +1,13 @@
+const U='http://localhost:5173';
+const txt=async()=>await page.evaluate(()=>document.body.innerText);
+const waitFor=async(pred,ms=90000)=>{const t=Date.now();while(Date.now()-t<ms){const b=await txt();if(pred(b))return +((Date.now()-t)/1000).toFixed(1);await sleep(250);}return -1;};
+const shot=async(n)=>{await fs.mkdir('./artifacts',{recursive:true});await page.screenshot({path:'./artifacts/'+n+'.png'});console.log('SHOT',pwd+'/artifacts/'+n+'.png');};
+await openTab(U+'/?agent=6af8a00f3ea029babf1a5652&conversation=6af8a00f3ea029babf1a5653');
+await page.getByRole('textbox',{name:'Message'}).fill('Post in #demo that the Acme refund is approved.');
+const t0=Date.now();
+await page.getByRole('textbox',{name:'Message'}).press('Enter');
+const a=await waitFor(b=>/\bApprove\b/.test(b)&&/\bReject\b/.test(b),100000);
+console.log('card secs',a);
+await shot('r1-row3-card');
+console.log((await snapshot(page,{selector:'main'})).tree);
+console.log('LEDGER',(await snapshot(page,{selector:'aside:last-of-type'})).tree);

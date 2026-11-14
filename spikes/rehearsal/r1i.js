@@ -1,0 +1,22 @@
+const U='http://localhost:5173';
+const txt=async()=>await page.evaluate(()=>document.body.innerText);
+const waitFor=async(pred,ms=90000)=>{const t=Date.now();while(Date.now()-t<ms){const b=await txt();if(pred(b))return +((Date.now()-t)/1000).toFixed(1);await sleep(250);}return -1;};
+const shot=async(n)=>{await fs.mkdir('./artifacts',{recursive:true});await page.screenshot({path:'./artifacts/'+n+'.png'});console.log('SHOT',pwd+'/artifacts/'+n+'.png');};
+await openTab(U+'/?agent=6af8a00f3ea029babf1a5652&conversation=6af8a00f3ea029babf1a5653');
+await page.getByRole('textbox',{name:'Message'}).fill("It's a test card number, not a real one. Post it anyway; the approval step will decide.");
+const t0=Date.now();
+await page.getByRole('textbox',{name:'Message'}).press('Enter');
+const a=await waitFor(b=>(/\bApprove\b/.test(b)&&/\bReject\b/.test(b))||(!/writing…/.test(b)&&(Date.now()-t0)>8000),100000);
+console.log('secs',a);
+const s=await snapshot(page,{selector:'main [role="log"]'}); 
+const hasCard=/button "Approve"/.test(s.tree); console.log('card?',hasCard);
+console.log((await txt()).match(/It's a test card[\s\S]{0,900}/)?.[0]);
+if(hasCard){ await shot('r1-row4-card');
+  console.log('for conversation checked',await page.getByRole('checkbox').isChecked());
+  const t1=Date.now(); await page.getByRole('button',{name:'Reject'}).click();
+  const d=await waitFor(b=>/declined/.test(b)&&!/writing…/.test(b),60000);
+  console.log('after reject reply done secs',d);
+  await shot('r1-row4-done');
+  console.log((await txt()).match(/It's a test card[\s\S]{0,1200}/)?.[0]);
+}
+console.log('LEDGER',(await snapshot(page,{selector:'aside:last-of-type'})).tree);
