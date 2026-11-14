@@ -210,7 +210,7 @@ export async function handleCall(info: TokenInfo, tool: string, input: unknown, 
   const rules = await rulesFor(agentId);
   const checked = await Promise.all(
     actions.map(async (action) => {
-      const fp = fingerprint(action.name, action.args);
+      const fp = fingerprint(action.name, action.identity ?? action.args);
       return { action, fp, verdict: await verdictFor(conversationId, rules, action, fp) };
     }),
   );

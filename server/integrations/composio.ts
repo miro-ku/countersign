@@ -231,6 +231,42 @@ export function createSource(db: Db, composio: Composio): ComposioSource {
     if (!cached) await Promise.race([load, new Promise((r) => setTimeout(r, CHANNELS_WAIT_MS))]);
   }
 
+  /** The id of a Slack channel given as an id, a name or "#name"; undefined when unknown. */
+  function channelIdFor(agentId: string | undefined, channel: string): string | undefined {
+    if (SLACK_ID.test(channel)) return channel;
+    const wanted = channel.replace(/^#/, '').trim().toLowerCase();
+    const connectionId = connectionFor('SLACK_', agentId);
+    const caches = connectionId ? [channels.get(connectionId)] : [...channels.values()];
+    for (const cache of caches) {
+      for (const [id, name] of cache?.names ?? []) {
+        if (name.toLowerCase() === wanted) return id;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * The arguments in one canonical form, so the same action has the same
+   * fingerprint whichever engine worded the call: empty values dropped, a
+   * Slack channel as its id, and a message's text under one key.
+   */
+  function identityOf(slug: string, args: Record<string, unknown>, agentId?: string): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(args ?? {})) {
+      if (value === null || value === undefined || value === '') continue;
+      out[key] = typeof value === 'string' ? value.trim() : value;
+    }
+    if (toolkitOf(slug) === 'slack') {
+      if (typeof out.channel === 'string') out.channel = channelIdFor(agentId, out.channel) ?? out.channel.replace(/^#/, '').toLowerCase();
+      const text = out.markdown_text ?? out.text;
+      if (typeof text === 'string') {
+        delete out.markdown_text;
+        out.text = text;
+      }
+    }
+    return out;
+  }
+
   function namesFor(agentId?: string): ChannelNames {
     return (id) => {
       const connectionId = connectionFor('SLACK_', agentId);
@@ -333,6 +369,7 @@ export function createSource(db: Db, composio: Composio): ComposioSource {
             name: e.tool_slug,
             kind: kindOf(e.tool_slug),
             args: e.arguments,
+            identity: identityOf(e.tool_slug, e.arguments, ctx?.agentId),
             summary: summarize(e.tool_slug, e.arguments, namesFor(ctx?.agentId)),
           };
           const connectionId = connectionFor(e.tool_slug, ctx?.agentId);

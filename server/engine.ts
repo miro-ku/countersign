@@ -330,10 +330,11 @@ export async function stopTurn(conversationId: string) {
 }
 
 export async function switchProvider(conversationId: string, provider: string): Promise<ConversationDoc | null> {
+  // Switching to the provider already in use changes nothing and says nothing.
   const conversation = await col.conversations.findOneAndUpdate(
-    { _id: conversationId }, { $set: { provider } }, { returnDocument: 'after' },
+    { _id: conversationId, provider: { $ne: provider } }, { $set: { provider } }, { returnDocument: 'after' },
   );
-  if (!conversation) return null;
+  if (!conversation) return col.conversations.findOne({ _id: conversationId });
   await insertMessage({ conversationId, role: 'event', text: `Switched to ${provider}`, source: 'text' });
   const run = running.get(conversationId);
   if (run && run.provider !== provider) {

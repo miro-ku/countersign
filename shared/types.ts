@@ -61,6 +61,11 @@ export interface Action {
   name: string;
   kind: 'read' | 'write';
   args: unknown;
+  /**
+   * What makes this the same action however it was worded: the arguments in
+   * one canonical form. The fingerprint is taken from it when present.
+   */
+  identity?: unknown;
   /** Plain words a person can approve: "send an email to anna@acme.com". */
   summary: string;
   connectionId?: string;
