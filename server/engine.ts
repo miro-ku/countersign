@@ -20,7 +20,16 @@ export const DELIVERY_NOTE =
   'what anyone said. Never mention, repeat or explain them. Answer the person directly and briefly. ' +
   'A line tagged as spoken on a call was said aloud, and your answer to it is read aloud: answer in one or two ' +
   'short sentences, the way you would say them, with no lists, tables, ids, links, symbols or formatting, and with ' +
-  'money in words, such as 49 dollars. You are one agent whatever runs you: never mention engines or models.';
+  'money in words, such as 49 dollars.';
+
+const ENGINE_NAMES: Record<string, string> = { 'claude-code': 'Claude Code', codex: 'Codex' };
+
+/** Which engine this session is, so the agent can say so when asked, and not otherwise. */
+const engineNote = (provider: string) =>
+  `You are one agent, and the person can move you between engines at any time; you keep the whole conversation ` +
+  `either way. Right now you are running on ${ENGINE_NAMES[provider] ?? provider}. If asked which engine or model ` +
+  `runs you, answer with that name in a few words. An [Event] line saying you were switched is not a question: ` +
+  `do not answer it, mention it or reassure anyone about it; just deal with what the person says next.`;
 
 const STOP_NOTE =
   '[System] The previous turn was stopped part-way through by the person. A tool call still running then never returned: call it again if it is still needed.';
@@ -225,7 +234,7 @@ async function runTurn(conversationId: string) {
       const token = mintToken({ agentId: agent._id, conversationId, provider: p as Provider });
       const session = await driver.start({
         conversationId,
-        systemPrompt: [agent.instructions.trim(), DELIVERY_NOTE, (await hasTools(agent._id)) ? RECORD_PROMPT_LINE : '']
+        systemPrompt: [agent.instructions.trim(), DELIVERY_NOTE, engineNote(p), (await hasTools(agent._id)) ? RECORD_PROMPT_LINE : '']
           .filter(Boolean).join('\n\n'),
         resumeSessionId: rec?.sessionId,
         mcp: { name: 'gateway', url: `http://127.0.0.1:${PORT}/mcp/${token}` },
