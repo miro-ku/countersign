@@ -21,6 +21,8 @@ export function humanize(action: string): string {
 /** A summary in plain words; one that only repeats the action's name and arguments is reworded. */
 export function plainSummary(summary: string | undefined | null, action: string): string {
   if (!summary || /^run [A-Z0-9_]+\b/.test(summary)) return humanize(action);
+  // An internal id means nothing to a reader.
+  if (/^look up the story of [0-9a-f]{24}$/.test(summary)) return 'look up the full story of one action';
   return summary;
 }
 
