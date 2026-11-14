@@ -112,7 +112,7 @@ async function isolate(apiKey: string, pcm: Buffer, timeoutMs: number): Promise<
   const wanted = ISOLATE_MIN_SECS * HEAR_RATE * 2;
   const padded = pcm.length >= wanted ? pcm : Buffer.concat([pcm, Buffer.alloc(wanted - pcm.length)]);
   const form = new FormData();
-  form.append('audio', new Blob([wav(padded)], { type: 'audio/wav' }), 'turn.wav');
+  form.append('audio', new Blob([new Uint8Array(wav(padded))], { type: 'audio/wav' }), 'turn.wav');
   try {
     const res = await fetch('https://api.elevenlabs.io/v1/audio-isolation', {
       method: 'POST', headers: { 'xi-api-key': apiKey }, body: form, signal: AbortSignal.timeout(timeoutMs),
@@ -147,7 +147,7 @@ export async function transcribeTurn(apiKey: string, pcm: Buffer, keyterms: stri
   form.append('tag_audio_events', 'false');
   for (const term of keyterms.slice(0, 100)) form.append('keyterms', term);
   if (clean) form.append('file', clean, 'turn.mp3');
-  else form.append('file', new Blob([wav(pcm)], { type: 'audio/wav' }), 'turn.wav');
+  else form.append('file', new Blob([new Uint8Array(wav(pcm))], { type: 'audio/wav' }), 'turn.wav');
   const res = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
     method: 'POST', headers: { 'xi-api-key': apiKey }, body: form, signal: AbortSignal.timeout(8000),
   });
