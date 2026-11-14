@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { drawAvatar, nameConversation, transcribe } from './assist.js';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { col, db, newId, OWNER_ID } from './db.js';
@@ -32,6 +33,7 @@ export function createApi(): Hono {
       version: 1, defaultProvider, testTools: body.testTools === true, createdAt: new Date(),
     };
     await col.agents.insertOne(agent);
+    drawAvatar(agent._id, name, instructions);
     return c.json(agent, 201);
   });
 
@@ -57,6 +59,18 @@ export function createApi(): Hono {
     }
     if (!Object.keys(set).length) return c.json(agent);
     return c.json(await col.agents.findOneAndUpdate({ _id: agent._id }, update, { returnDocument: 'after' }));
+  });
+
+  // ── Voice input ──
+  api.post('/transcribe', async (c) => {
+    const audio = await c.req.blob();
+    if (!audio.size) return c.json({ error: 'no audio' }, 400);
+    try {
+      const type = c.req.header('content-type') ?? 'audio/webm';
+      return c.json({ text: await transcribe(audio, `speech.${type.includes('mp4') ? 'mp4' : type.includes('ogg') ? 'ogg' : 'webm'}`) });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : 'Speech to text failed.' }, 502);
+    }
   });
 
   // ── Conversations ──
@@ -95,8 +109,11 @@ export function createApi(): Hono {
     const body = await c.req.json().catch(() => ({}));
     const text = String(body.text ?? '').trim();
     if (!text) return c.json({ error: 'text is required' }, 400);
-    if (!(await col.conversations.findOne({ _id: id }))) return c.json({ error: 'not found' }, 404);
+    const conversation = await col.conversations.findOne({ _id: id });
+    if (!conversation) return c.json({ error: 'not found' }, 404);
+    const first = !(await col.messages.findOne({ conversationId: id, role: 'user' }));
     const message = await postMessage(id, text, body.source === 'voice' ? 'voice' : 'text');
+    if (first) nameConversation(id, text);
     return c.json(message, 202);
   });
 

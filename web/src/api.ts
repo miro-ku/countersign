@@ -58,8 +58,15 @@ export const api = {
   createConversation: async (agentId: string) =>
     unwrap<Conversation>(await call('POST', '/api/conversations', { agentId }), 'conversation'),
   getConversation: (id: string) => call<any>('GET', `/api/conversations/${id}`),
-  send: (id: string, text: string) =>
-    call('POST', `/api/conversations/${id}/messages`, { text, source: 'text' }),
+  send: (id: string, text: string, source: 'text' | 'voice' = 'text') =>
+    call('POST', `/api/conversations/${id}/messages`, { text, source }),
+  /** Speech to text for a short recording. */
+  transcribe: async (audio: Blob): Promise<string> => {
+    const response = await fetch('/api/transcribe', { method: 'POST', headers: { 'content-type': audio.type || 'audio/webm' }, body: audio });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error ?? 'Speech to text failed.');
+    return String(body.text ?? '');
+  },
   switchProvider: (id: string, provider: Provider) =>
     call('POST', `/api/conversations/${id}/provider`, { provider }),
   stop: (id: string) => call('POST', `/api/conversations/${id}/stop`),

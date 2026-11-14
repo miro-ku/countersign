@@ -86,6 +86,8 @@ export function App() {
   const createAgent = async (body: { name: string; instructions: string; defaultProvider: Provider }) => {
     const a = await api.createAgent(body);
     setAgents((list) => [a, ...list.filter((x) => x._id !== a._id)]);
+    // The avatar is drawn a few seconds after the agent is made.
+    for (const ms of [3000, 6000, 12000]) setTimeout(() => api.listAgents().then(setAgents).catch(() => {}), ms);
     setAgentId(a._id);
     setConversationId((await api.createConversation(a._id))._id);
   };
@@ -123,9 +125,7 @@ export function App() {
                   a._id === agentId && 'bg-accent',
                 )}
               >
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-background text-xs font-medium text-muted-foreground ring-1 ring-border">
-                  {a.name.slice(0, 1).toUpperCase()}
-                </span>
+                <AgentAvatar agent={a} />
                 <span className="min-w-0 flex-1 truncate text-sm">{a.name}</span>
                 <span className="text-[11px] text-muted-foreground tabular-nums">v{a.version}</span>
               </button>
@@ -133,7 +133,7 @@ export function App() {
                 <Conversations
                   agentId={a._id}
                   current={conversationId}
-                  refreshKey={`${conversationId}:${Object.values(live.messages).filter((m) => m.role === 'user').length}`}
+                  refreshKey={`${conversationId}:${live.conversation?.title ?? ''}:${Object.values(live.messages).filter((m) => m.role === 'user').length}`}
                   onPick={setConversationId}
                   onNew={newConversation}
                 />
@@ -265,6 +265,25 @@ function Apps({ agentId, connections, fail }: { agentId: string; connections: Co
 }
 
 /** The agent's conversations, newest first, each named by its first message. */
+/** The agent's face: an emoji on a soft gradient, or its initial until that is drawn. */
+function AgentAvatar({ agent }: { agent: Agent }) {
+  if (!agent.avatar) {
+    return (
+      <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-background text-xs font-medium text-muted-foreground ring-1 ring-border">
+        {agent.name.slice(0, 1).toUpperCase()}
+      </span>
+    );
+  }
+  return (
+    <span
+      className="flex size-6 shrink-0 items-center justify-center rounded-md text-sm leading-none"
+      style={{ background: `linear-gradient(135deg, ${agent.avatar.from}, ${agent.avatar.to})` }}
+    >
+      {agent.avatar.emoji}
+    </span>
+  );
+}
+
 function Conversations({ agentId, current, refreshKey, onPick, onNew }: {
   agentId: string; current: string | null; refreshKey: string;
   onPick: (id: string) => void; onNew: () => void;
@@ -275,6 +294,7 @@ function Conversations({ agentId, current, refreshKey, onPick, onNew }: {
     (async () => {
       const convs = (await api.listConversations(agentId)).slice(0, 8);
       const titled = await Promise.all(convs.map(async (c) => {
+        if (c.title) return { _id: c._id, title: c.title };
         try {
           const snap = await api.getConversation(c._id);
           const first = ((snap.messages ?? []) as { role: string; seq: number; text: string }[])
@@ -288,7 +308,7 @@ function Conversations({ agentId, current, refreshKey, onPick, onNew }: {
   }, [agentId, refreshKey]);
 
   return (
-    <div className="my-1 ml-5 flex flex-col gap-px border-l pl-2">
+    <div className="my-1 ml-5 flex min-w-0 flex-col gap-px overflow-hidden border-l pl-2 pr-1">
       <button onClick={onNew} className="flex items-center gap-1.5 rounded px-2 py-1 text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground">
         <PlusIcon className="size-3" /> New chat
       </button>
@@ -298,8 +318,8 @@ function Conversations({ agentId, current, refreshKey, onPick, onNew }: {
           onClick={() => onPick(c._id)}
           title={c.title}
           className={cn(
-            'truncate rounded px-2 py-1 text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground',
-            c._id === current && 'bg-background font-medium text-foreground ring-1 ring-border',
+            'block w-full min-w-0 truncate rounded px-2 py-1 text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground',
+            c._id === current && 'bg-background font-medium text-foreground ring-1 ring-inset ring-border',
           )}
         >
           {c.title}

@@ -12,6 +12,8 @@ export interface Agent {
   instructionsHash?: string;
   version: number;
   defaultProvider: Provider;
+  /** Drawn for the agent from its name and instructions, a few seconds after it is made. */
+  avatar?: { emoji: string; from: string; to: string };
   createdAt: string;
 }
 
@@ -46,6 +48,8 @@ export interface Conversation {
   provider: Provider;
   providerSessions?: Record<string, { sessionId: string; seenMessageId: string; at: string }>;
   stoppedNote?: boolean;
+  /** What the conversation is about, named from its first message. */
+  title?: string;
   createdAt: string;
 }
 

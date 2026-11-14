@@ -90,7 +90,7 @@ export function Chat({ live, conversationId, agentId, running, onStop, fail, pro
       </Conversation>
 
       <div className="mx-auto w-full max-w-2xl px-6 pb-5">
-        <div className="flex items-center gap-2">
+        <div className="flex items-end gap-2">
           <PromptInput
             className="flex-1"
             onSubmit={({ text }) => {
@@ -104,6 +104,7 @@ export function Chat({ live, conversationId, agentId, running, onStop, fail, pro
             <PromptInputFooter className="pt-0">
               <PromptInputTools>
                 <EngineSwitch provider={provider} onSwitch={onSwitch} />
+                <Dictate onText={(t) => api.send(conversationId, t, 'voice').catch(fail)} fail={fail} />
               </PromptInputTools>
               <PromptInputSubmit status={running ? 'streaming' : undefined} onStop={onStop} />
             </PromptInputFooter>
@@ -113,6 +114,51 @@ export function Chat({ live, conversationId, agentId, running, onStop, fail, pro
         </div>
       </div>
     </>
+  );
+}
+
+/** Speak a message: records until clicked again, then sends the transcript as a spoken message. */
+function Dictate({ onText, fail }: { onText: (text: string) => void; fail: (e: unknown) => void }) {
+  const [state, setState] = useState<'idle' | 'recording' | 'transcribing'>('idle');
+  const recorder = useRef<MediaRecorder | null>(null);
+
+  const start = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const chunks: Blob[] = [];
+      const rec = new MediaRecorder(stream);
+      rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+      rec.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        setState('transcribing');
+        try {
+          const text = (await api.transcribe(new Blob(chunks, { type: rec.mimeType || 'audio/webm' }))).trim();
+          if (text) onText(text);
+          else fail(new Error('Nothing was heard. Try again.'));
+        } catch (e) { fail(e); } finally { setState('idle'); }
+      };
+      recorder.current = rec;
+      rec.start();
+      setState('recording');
+    } catch (e) { fail(e); }
+  };
+
+  return (
+    <button
+      type="button"
+      disabled={state === 'transcribing'}
+      onClick={() => (state === 'recording' ? recorder.current?.stop() : start())}
+      aria-label={state === 'recording' ? 'Stop and send' : 'Speak a message'}
+      title={state === 'recording' ? 'Stop and send' : 'Speak a message'}
+      className={cn(
+        'flex h-7 items-center gap-1.5 rounded-lg px-2 text-xs font-medium transition',
+        state === 'recording' ? 'bg-red-600 text-white' : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+      )}
+    >
+      {state === 'transcribing' ? <LoaderIcon className="size-3.5 animate-spin" /> : <MicIcon className="size-3.5" />}
+      {state === 'recording' && 'Listening… click to send'}
+      {state === 'transcribing' && 'Transcribing'}
+    </button>
   );
 }
 
