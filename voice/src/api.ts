@@ -75,3 +75,13 @@ export async function openAsks(conversationId: string): Promise<any[]> {
   const j: any = await r.json();
   return (j.asks ?? []).filter((a: any) => a.status === 'open');
 }
+
+/** Capitalised names said so far in the conversation, and in the agent's instructions. */
+export async function properNouns(conversationId: string): Promise<string[]> {
+  const snap: any = await (await fetch(`${API_BASE}/api/conversations/${conversationId}`)).json();
+  const agent: any = await (await fetch(`${API_BASE}/api/agents/${snap.conversation?.agentId}`)).json().catch(() => ({}));
+  const text = [agent?.name, agent?.instructions, ...(snap.messages ?? []).slice(-30).map((m: any) => m.text)].filter(Boolean).join('\n');
+  const names = text.match(/\b[A-Z][a-z]+(?: [A-Z][a-z]+){0,2}\b/g) ?? [];
+  const common = new Set(['The', 'You', 'When', 'If', 'Before', 'Be', 'It', 'This', 'That', 'And', 'But', 'Yes', 'No', 'Is', 'Can', 'What', 'Why', 'How', 'Please', 'Okay']);
+  return [...new Set(names.filter((n) => !common.has(n)))].slice(0, 60);
+}

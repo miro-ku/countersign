@@ -86,6 +86,76 @@ export class Listener {
   }
 }
 
+/** A WAV file around mono PCM16 at HEAR_RATE. */
+function wav(pcm: Buffer): Buffer {
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0);
+  header.writeUInt32LE(36 + pcm.length, 4);
+  header.write('WAVEfmt ', 8);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(HEAR_RATE, 24);
+  header.writeUInt32LE(HEAR_RATE * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write('data', 36);
+  header.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([header, pcm]);
+}
+
+// Voice isolation takes nothing shorter than this, so a short turn is padded with silence.
+const ISOLATE_MIN_SECS = 5;
+
+/** The person's voice with the room taken out; null when that could not be had in time. */
+async function isolate(apiKey: string, pcm: Buffer, timeoutMs: number): Promise<Blob | null> {
+  const wanted = ISOLATE_MIN_SECS * HEAR_RATE * 2;
+  const padded = pcm.length >= wanted ? pcm : Buffer.concat([pcm, Buffer.alloc(wanted - pcm.length)]);
+  const form = new FormData();
+  form.append('audio', new Blob([wav(padded)], { type: 'audio/wav' }), 'turn.wav');
+  try {
+    const res = await fetch('https://api.elevenlabs.io/v1/audio-isolation', {
+      method: 'POST', headers: { 'xi-api-key': apiKey }, body: form, signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) {
+      console.warn(`[voice] isolation refused (${res.status}): ${(await res.text()).slice(0, 160)}`);
+      return null;
+    }
+    return await res.blob();
+  } catch (e: any) {
+    console.warn(`[voice] isolation skipped: ${e.message}`);
+    return null;
+  }
+}
+
+export interface TurnTranscript { text: string; isolated: boolean; ms: number }
+
+/**
+ * One whole turn, heard again from start to end by the full transcription
+ * model, told which names to listen for. About half a second slower than the
+ * live transcript, and better with names.
+ */
+export async function transcribeTurn(apiKey: string, pcm: Buffer, keyterms: string[]): Promise<TurnTranscript> {
+  const started = Date.now();
+  // Off unless asked for: with a second voice nearby, isolation brought that voice forward
+  // and the transcript followed it (spikes/voice/turnCheck.mts).
+  const clean = process.env.VOICE_ISOLATION === 'on' ? await isolate(apiKey, pcm, 4000) : null;
+  const form = new FormData();
+  form.append('model_id', process.env.VOICE_STT_MODEL || 'scribe_v2');
+  form.append('language_code', 'en');
+  form.append('no_verbatim', 'true');
+  form.append('tag_audio_events', 'false');
+  for (const term of keyterms.slice(0, 100)) form.append('keyterms', term);
+  if (clean) form.append('file', clean, 'turn.mp3');
+  else form.append('file', new Blob([wav(pcm)], { type: 'audio/wav' }), 'turn.wav');
+  const res = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+    method: 'POST', headers: { 'xi-api-key': apiKey }, body: form, signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) throw new Error(`speech to text failed (${res.status}): ${(await res.text()).slice(0, 160)}`);
+  const body = (await res.json()) as { text?: string };
+  return { text: (body.text ?? '').trim(), isolated: clean !== null, ms: Date.now() - started };
+}
+
 let voiceIdCache: string | null = null;
 
 export async function pickVoice(apiKey: string): Promise<string> {

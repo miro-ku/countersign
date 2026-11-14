@@ -12,10 +12,10 @@ import {
   type RemoteParticipant,
   type RemoteTrack,
 } from '@livekit/rtc-node';
-import { answerAsk, followEvents, openAsks, postMessage } from './api.ts';
+import { answerAsk, followEvents, openAsks, postMessage, properNouns } from './api.ts';
 import { judge } from './judge.ts';
 import {
-  HEAR_RATE, Listener, SPEAK_RATE, completeSentences, pickVoice, speakable, synthesize,
+  HEAR_RATE, Listener, SPEAK_RATE, completeSentences, pickVoice, speakable, synthesize, transcribeTurn,
 } from './speech.ts';
 
 const FRAME = SPEAK_RATE / 50; // 20 ms
@@ -60,6 +60,9 @@ export class Call {
   private replies = new Map<string, { used: number; hushed: boolean; finished: boolean }>();
   private asks: OpenAsk[] = [];
   private waiting: ReturnType<typeof setTimeout> | null = null;
+  private turnAudio: Buffer[] = [];
+  private liveText: string[] = [];
+  private inTurn = false;
   private handledAsks = new Set<string>();
   private judging = false;
   private joinedAt = Date.now();
@@ -73,7 +76,7 @@ export class Call {
   ) {
     this.listener = new Listener(apiKey, {
       partial: (t) => this.onPartial(t),
-      final: (t) => void this.onFinal(t),
+      final: (t) => this.onLive(t),
       error: (m) => console.warn(`[voice] listener: ${m}`),
     });
   }
@@ -86,7 +89,8 @@ export class Call {
       if (track.kind === TrackKind.KIND_AUDIO) void this.hear(track, p);
     });
     // A muted microphone sends no audio at all, so the end of the turn is told to the listener.
-    this.room.on(RoomEvent.TrackMuted, () => this.listener.endTurn());
+    this.room.on(RoomEvent.TrackMuted, () => void this.endTurn());
+    this.room.on(RoomEvent.TrackUnmuted, () => this.beginTurn());
     this.room.on(RoomEvent.ParticipantConnected, () => this.cancelLeave());
     this.room.on(RoomEvent.ParticipantDisconnected, () => this.maybeLeave());
     this.room.on(RoomEvent.Disconnected, () => void this.close());
@@ -125,10 +129,68 @@ export class Call {
           if (peak > 500) console.log(`[voice] level ${p.identity} ${peak}`);
         }
         this.listener.push(chunk);
+        // Kept for the whole turn, to be heard again when the microphone goes off.
+        if (this.turnAudio.length < 60 * 10) this.turnAudio.push(chunk);
         batch = [];
         n = 0;
       }
     }
+  }
+
+  /** The microphone came on: a turn starts, and its audio and live transcript are collected. */
+  private beginTurn() {
+    this.turnAudio = [];
+    this.liveText = [];
+    this.inTurn = true;
+    if (this.playing) this.bargeIn();
+  }
+
+  /**
+   * The microphone went off: the turn is over. Its audio is heard once more as
+   * a whole, which gets names right that the live transcript misses; the live
+   * transcript is what we fall back on.
+   */
+  private async endTurn() {
+    if (!this.inTurn) return this.listener.endTurn();
+    this.inTurn = false;
+    const audio = Buffer.concat(this.turnAudio);
+    this.turnAudio = [];
+    this.listener.endTurn();
+    let text = '';
+    if (audio.length >= HEAR_RATE * 2 * 0.3) {
+      try {
+        const heard = await transcribeTurn(this.apiKey, audio, await this.keyterms());
+        text = heard.text;
+        console.log(`[voice] turn heard again in ${heard.ms} ms${heard.isolated ? ', noise taken out' : ''}`);
+      } catch (e: any) {
+        console.warn(`[voice] ${e.message}`);
+      }
+    }
+    // The live lines may still be arriving; give the last one a moment.
+    if (!text) {
+      await new Promise((r) => setTimeout(r, 1200));
+      text = this.liveText.join(' ').trim();
+    }
+    this.liveText = [];
+    if (text) await this.onFinal(text);
+    else this.tell({ type: 'state', state: 'listening' });
+  }
+
+  /** Names worth listening for: given for the demo, and the ones already said in this conversation. */
+  private async keyterms(): Promise<string[]> {
+    const given = (process.env.VOICE_KEYTERMS ?? '').split(',').map((t) => t.trim()).filter(Boolean);
+    const seen = await properNouns(this.conversationId).catch(() => []);
+    return [...new Set([...given, ...seen])];
+  }
+
+  /** A line of the live transcript. During a turn it is only kept; the turn's end decides. */
+  private onLive(text: string) {
+    if (this.inTurn || this.liveText.length) {
+      this.liveText.push(text);
+      this.tell({ type: 'heard', text: this.liveText.join(' ') });
+      return;
+    }
+    void this.onFinal(text);
   }
 
   private onPartial(text: string) {
