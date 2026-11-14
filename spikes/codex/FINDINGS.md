@@ -126,3 +126,21 @@ make it gateway-only.
 5. Tool timeout: `tool_timeout_sec: 300` per server; a 90 s hold completed.
    The default would cut a 4-minute hold.
 6. The model comes from the user's config unless `model` is passed.
+
+## The driver (`server/providers/codex/index.ts`)
+
+`codexDriver.start` launches the app server with the flags above, opens or
+resumes the thread (a failed resume falls back to a fresh thread, so the
+`session` event may carry a new id), and translates events:
+`session` (thread id, model), `text` deltas (agent messages in one turn are
+separated by a blank line), `tool` request/response for every `mcpToolCall`,
+`turn-ended` (`interrupted` from `turn.status`). `send` during a turn queues
+the text for the next turn. `interrupt` sends `turn/interrupt` and resolves
+when the turn has ended. `close` stops the process (SIGTERM, then SIGKILL).
+
+`spikes/codex/driverTest.ts` (all passing): session event; turn 1 calls
+`notes_add`; turn 2 remembers it; turn 3 is interrupted during a 60 s held
+call; the process is closed; a new process resumes the same thread and the
+retried call completes.
+
+An interrupted turn has a `tool` request with no matching response.

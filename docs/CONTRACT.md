@@ -125,6 +125,12 @@ seen, including the other provider's replies.
 `stopped`, close the reply with what streamed, set `stoppedNote`, mark the
 turn's open asks `stopped` and release their held calls.
 
+A provider may never close an MCP request it was interrupted in, so the
+gateway releases held calls itself: on stop they return a refusal at once; on
+a switch the old provider's held calls return "The conversation moved to
+another provider. Stop here." while their asks stay `open` for the new one.
+A `once` approval is used only by the call that consumes it.
+
 **Warm sessions.** One process per `conversation#provider`, started on the
 first turn, closed after 15 idle minutes or when the server stops.
 
@@ -166,6 +172,9 @@ file approval declined, the gateway passed as the one MCP server.
 
 An MCP server over streamable HTTP at `/mcp/:token`; the token maps to
 `{ agentId, conversationId, provider }` and is minted per provider session.
+It advertises only the `tools` capability: `resources/*` and `prompts/*`
+requests are refused (`Method not found`), so nothing is reachable outside the
+rule check.
 
 **Tool sources.** The gateway serves the tools of every source the agent has:
 
