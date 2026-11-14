@@ -1,0 +1,6 @@
+packages:
+  - web
+  - voice
+onlyBuiltDependencies:
+  - esbuild
+  - '@livekit/rtc-node'

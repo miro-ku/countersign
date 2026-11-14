@@ -94,16 +94,16 @@ export function App() {
   const stop = () => { if (conversationId) api.stop(conversationId).catch(fail); };
 
   return (
-    <div className="grid h-dvh grid-cols-[250px_minmax(0,1fr)_380px] bg-background text-foreground">
+    <div className="grid h-dvh grid-cols-[230px_minmax(0,1fr)_340px] bg-background text-foreground">
       {/* Agents */}
       <aside className="flex min-h-0 flex-col border-r bg-muted/40">
         <div className="flex h-16 shrink-0 items-center gap-2.5 border-b px-4">
-          <div className="flex size-9 items-center justify-center rounded-lg bg-foreground text-background">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-foreground text-background">
             <ShieldCheckIcon className="size-5" />
           </div>
           <div className="leading-tight">
             <div className="font-semibold">Governed agents</div>
-            <div className="text-xs text-muted-foreground">Rules that hold on any engine</div>
+            <div className="text-xs text-muted-foreground">Same rules, any engine</div>
           </div>
         </div>
         <div className="px-4 pt-4 pb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Agents</div>
@@ -138,10 +138,10 @@ export function App() {
 
       {/* Conversation */}
       <main className="flex min-h-0 min-w-0 flex-col">
-        <header className="flex h-16 shrink-0 items-center gap-3 border-b px-5">
+        <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
           {agent && conversationId ? (
             <>
-              <div className="flex min-w-[140px] flex-1 items-center gap-2">
+              <div className="flex min-w-[120px] flex-1 items-center gap-2">
                 <h1 className="truncate text-lg font-semibold">{agent.name}</h1>
                 <Badge variant="outline" className="font-mono">v{agent.version}</Badge>
               </div>
@@ -150,8 +150,8 @@ export function App() {
                 onValueChange={(p) => { if (conv && p !== conv.provider) api.switchProvider(conv._id, p as Provider).catch(fail); }}
               >
                 <TabsList>
-                  <TabsTrigger value="claude-code" className="px-3" disabled={!conv}>Claude Code</TabsTrigger>
-                  <TabsTrigger value="codex" className="px-3" disabled={!conv}>Codex</TabsTrigger>
+                  <TabsTrigger value="claude-code" className="px-2.5" disabled={!conv}>Claude Code</TabsTrigger>
+                  <TabsTrigger value="codex" className="px-2.5" disabled={!conv}>Codex</TabsTrigger>
                 </TabsList>
               </Tabs>
               {running && (
@@ -233,16 +233,20 @@ function Apps({ agentId, connections, fail }: { agentId: string; connections: Co
           );
         }
         return (
-          <Button
-            key={id}
-            variant="outline"
-            size="sm"
-            onClick={async () => {
-              try { location.href = (await api.connect(agentId, id)).redirectUrl; } catch (e) { fail(e); }
-            }}
-          >
-            <Icon /> {c?.status === 'pending' ? `Finish ${label}` : `Connect ${label}`}
-          </Button>
+          <Tooltip key={id}>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  try { location.href = (await api.connect(agentId, id)).redirectUrl; } catch (e) { fail(e); }
+                }}
+              >
+                <PlusIcon /><Icon /> {label}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{c?.status === 'pending' ? `Finish connecting ${label}` : `Connect ${label} to this agent`}</TooltipContent>
+          </Tooltip>
         );
       })}
     </div>

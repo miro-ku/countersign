@@ -28,13 +28,13 @@ export function Ledger({ entries, fail }: { entries: LedgerRow[]; fail: (e: unkn
   return (
     <>
       <div className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
-        <ScrollTextIcon className="size-5" />
+        <ScrollTextIcon className="size-5 shrink-0" />
         <span className="font-semibold">Ledger</span>
         <span className="relative ml-1 flex size-2">
           <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-75" />
           <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
         </span>
-        <span className="ml-auto text-xs text-muted-foreground">every tool call, live</span>
+        <span className="ml-auto text-xs text-muted-foreground">live</span>
       </div>
       <ScrollArea className="min-h-0 flex-1">
         <div className="flex flex-col gap-2 p-3">
@@ -57,7 +57,7 @@ function Row({ e, canUndo, fail }: { e: LedgerRow; canUndo: boolean; fail: (e: u
     <Collapsible className={cn('ledger-arrive group rounded-lg border border-l-4 bg-card shadow-xs', style.edge)}>
       <CollapsibleTrigger className="w-full px-3 py-2.5 text-left">
         <div className="flex items-center gap-2">
-          <span className={cn('w-[86px] shrink-0 rounded-md px-2 py-0.5 text-center text-xs font-semibold uppercase tracking-wide', style.pill)}>
+          <span className={cn('w-[84px] shrink-0 rounded-md px-2 py-0.5 text-center text-xs font-semibold uppercase tracking-wide', style.pill)}>
             {e.outcome}
           </span>
           <span className="min-w-0 flex-1 truncate font-mono text-sm font-medium">{e.action.replace(/^mcp__gateway__/, '')}</span>

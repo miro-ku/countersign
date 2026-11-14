@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -n server,web -c blue,green \"npm run dev:server\" \"npm --prefix web run dev\"",
+    "dev": "concurrently -n server,web -c blue,green \"pnpm dev:server\" \"pnpm --dir web dev\"",
     "dev:server": "tsx watch server/index.ts",
     "setup:db": "tsx server/setupDb.ts",
     "typecheck": "tsc --noEmit"
@@ -22,5 +22,6 @@
     "concurrently": "^10.0.7",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
-  }
+  },
+  "packageManager": "pnpm@10.14.0"
 }

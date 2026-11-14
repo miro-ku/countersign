@@ -69,20 +69,19 @@ The full agreement between the parts is in [docs/CONTRACT.md](docs/CONTRACT.md).
 
 ## Run it
 
-Needs Node 24, the `claude` and `codex` command-line tools signed in on the
+Needs Node 24, pnpm 10, the `claude` and `codex` command-line tools signed in on the
 machine, and a MongoDB Atlas cluster.
 
 ```sh
 cp .env.example .env        # fill in the values
-npm install
-npm --prefix web install
-npm run setup:db            # collections, validators, indexes, default rules
-npm run dev                 # API and gateway on 4100, page on 5173
+pnpm install                # one install for the server, the page and the voice service
+pnpm setup:db               # collections, validators, indexes, default rules
+pnpm dev                    # API and gateway on 4100, page on 5173
 ```
 
 Then open http://localhost:5173.
 
-`npx tsx scripts/smoke.ts` runs the governed path end to end against a running
+`pnpm exec tsx scripts/smoke.ts` runs the governed path end to end against a running
 server; `--switch` also checks that a rejection holds after changing engines.
 
 ## Layout

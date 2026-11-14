@@ -27,6 +27,10 @@ MongoDB Atlas is the identity, policy, audit and conversation store.
   mentions any other product or codebase it was inspired by.
 - Secrets live in the root `.env` (never committed, never printed). It
   contains `&`, so read it with a dotenv parser, never `source`.
+- The repository is one pnpm workspace (`pnpm-workspace.yaml`: the root, `web`
+  and `voice`). Dependencies are added with `pnpm add <pkg>` in the package
+  that needs them (`pnpm add -w <pkg>` at the root), never with `npm install`.
+  Scripts run with `pnpm <script>` and `pnpm exec tsx <file>`.
 - A track writes only in its own folder. Nobody runs `git` commands: the
   coordinating session commits.
 - One user exists today: `ownerId = "miro"`. No login.
