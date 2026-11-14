@@ -44,6 +44,21 @@ export function aloud(summary: string): string {
 
 const BACKCHANNEL = new Set(['mm', 'mhm', 'hmm', 'uh', 'um', 'yeah', 'yep', 'ok', 'okay', 'right', 'sure', 'huh']);
 
+/** How much of this audio is loud enough to be someone speaking into the microphone. */
+function voicedSeconds(pcm: Buffer): number {
+  const window = (HEAR_RATE / 10) * 2; // 100 ms
+  let voiced = 0;
+  for (let at = 0; at + window <= pcm.length; at += window) {
+    let sum = 0;
+    for (let i = at; i < at + window; i += 2) {
+      const v = pcm.readInt16LE(i);
+      sum += v * v;
+    }
+    if (Math.sqrt(sum / (window / 2)) > 300) voiced += 0.1;
+  }
+  return voiced;
+}
+
 interface OpenAsk { id: string; summary: string; tries: number }
 
 export class Call {
@@ -90,7 +105,11 @@ export class Call {
   async start(url: string, token: string) {
     this.voiceId = await pickVoice(this.apiKey);
     this.room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _pub, p: RemoteParticipant) => {
-      if (track.kind === TrackKind.KIND_AUDIO) void this.hear(track, p);
+      if (track.kind !== TrackKind.KIND_AUDIO) return;
+      // The first time the microphone comes on it arrives as a new track, not as
+      // an unmute: that is the start of a turn too.
+      this.beginTurn();
+      void this.hear(track, p);
     });
     // A muted microphone sends no audio at all, so the end of the turn is told to the listener.
     this.room.on(RoomEvent.TrackMuted, () => void this.endTurn());
@@ -163,7 +182,9 @@ export class Call {
     this.turnAudio = [];
     this.listener.endTurn();
     let text = '';
-    if (audio.length >= HEAR_RATE * 2 * 0.3) {
+    // A turn with no voice in it is not sent to be heard again: given names to
+    // listen for, the model makes a sentence out of silence.
+    if (voicedSeconds(audio) >= 0.3) {
       try {
         const heard = await transcribeTurn(this.apiKey, audio, await this.keyterms());
         text = heard.text;

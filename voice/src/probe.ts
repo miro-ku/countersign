@@ -52,6 +52,10 @@ const track = LocalAudioTrack.createAudioTrack('mic', source);
 const opts = new TrackPublishOptions();
 opts.source = TrackSource.SOURCE_MICROPHONE;
 await room.localParticipant!.publishTrack(track, opts);
+// VOICE_PTT=1 speaks the way the page does: microphone on for each phrase, off after it.
+const ptt = process.env.VOICE_PTT === '1';
+const mic = track as unknown as { mute?: () => unknown; unmute?: () => unknown };
+if (ptt) { console.log(`${ts()} push to talk (mute available: ${typeof mic.mute === 'function'})`); await mic.mute?.(); }
 
 // Silence keeps the stream going between phrases, like a real open microphone.
 const FRAME = RATE / 100;
@@ -71,8 +75,9 @@ for (const p of phrases) {
   if (m) { await quiet(Number(m[1])); continue; }
   const pcm = await speechPcm(p);
   console.log(`${ts()} person says: ${p}`);
+  if (ptt) { await mic.unmute?.(); await quiet(0.3); }
   await play(pcm);
-  await quiet(1);
+  if (ptt) { await quiet(0.2); await mic.mute?.(); } else await quiet(1);
 }
 await quiet(2);
 
