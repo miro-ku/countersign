@@ -1,29 +1,40 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api, cap, pretty, type Live } from './api.ts';
-import { PROVIDER_LABEL, type Ask, type Message, type Step } from './types.ts';
+import { PROVIDER_LABEL, type Ask, type LedgerRow, type Message, type Step } from './types.ts';
 
-type Item = { kind: 'message'; m: Message } | { kind: 'ask'; a: Ask };
+type Item = { kind: 'message'; m: Message } | { kind: 'ask'; a: Ask } | { kind: 'decision'; e: LedgerRow };
 
 const time = (s?: string) => (s ? new Date(s).getTime() : 0);
 
-/** Messages in `seq` order; each ask sits after the last message written before it. */
+/**
+ * Messages in `seq` order; each ask sits after the last message written before
+ * it. The snapshot only carries open asks, so an answer this browser never saw
+ * is shown from its ledger entry instead.
+ */
 function timeline(live: Live): Item[] {
   const messages = Object.values(live.messages).sort((a, b) => a.seq - b.seq);
-  const asks = Object.values(live.asks).sort((a, b) => time(a.createdAt) - time(b.createdAt));
+  const asks = Object.values(live.asks);
+  const seen = new Set(asks.map((a) => a.fingerprint));
+  const side: { at: number; item: Item }[] = [
+    ...asks.map((a) => ({ at: time(a.createdAt), item: { kind: 'ask', a } as Item })),
+    ...Object.values(live.ledger)
+      .filter((e) => (e.outcome === 'approved' || e.outcome === 'declined') && !seen.has(e.fingerprint))
+      .map((e) => ({ at: time(e.at), item: { kind: 'decision', e } as Item })),
+  ].sort((x, y) => x.at - y.at);
   const items: Item[] = [];
   let i = 0;
   for (const m of messages) {
-    while (i < asks.length && time(asks[i].createdAt) < time(m.at)) items.push({ kind: 'ask', a: asks[i++] });
+    while (i < side.length && side[i].at < time(m.at)) items.push(side[i++].item);
     items.push({ kind: 'message', m });
   }
-  while (i < asks.length) items.push({ kind: 'ask', a: asks[i++] });
+  while (i < side.length) items.push(side[i++].item);
   return items;
 }
 
 export function Chat({ live, conversationId, agentId, fail }: {
   live: Live; conversationId: string; agentId: string; fail: (e: unknown) => void;
 }) {
-  const items = useMemo(() => timeline(live), [live.messages, live.asks]);
+  const items = useMemo(() => timeline(live), [live.messages, live.asks, live.ledger]);
   const scroller = useRef<HTMLDivElement>(null);
   const [text, setText] = useState('');
 
@@ -47,7 +58,9 @@ export function Chat({ live, conversationId, agentId, fail }: {
       <div className="chat" ref={scroller}>
         {items.length === 0 && <div className="empty">Say something to start the conversation.</div>}
         {items.map((it) =>
-          it.kind === 'message' ? <MessageView key={it.m._id} m={it.m} /> : <AskView key={it.a._id} a={it.a} fail={fail} />,
+          it.kind === 'message' ? <MessageView key={it.m._id} m={it.m} />
+            : it.kind === 'ask' ? <AskView key={it.a._id} a={it.a} fail={fail} />
+            : <DecisionLine key={it.e._id} e={it.e} />,
         )}
       </div>
       <form className="composer" onSubmit={send}>
@@ -151,6 +164,17 @@ function ToolRow({ req, res }: {
           {res ? pretty(res.output) : 'still running'}
         </pre>
       )}
+    </div>
+  );
+}
+
+function DecisionLine({ e }: { e: LedgerRow }) {
+  const ok = e.outcome === 'approved';
+  return (
+    <div className={`ask-done ${e.outcome}`}>
+      <span className="mark">{ok ? '✓' : '✕'}</span>
+      <span className="ask-line">{ok ? 'Approved' : 'Rejected'} by {cap(e.decidedBy ?? 'miro')}</span>
+      <span className="ask-what">· {toolName(e.action)}</span>
     </div>
   );
 }

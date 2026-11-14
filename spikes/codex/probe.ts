@@ -8,7 +8,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { startNotesServer } from './mcpServer.js';
 
-const PORT = 4199;
+const PORT = Number(process.env.PORT ?? 4199);
 const t0 = Date.now();
 const ts = () => `+${((Date.now() - t0) / 1000).toFixed(1)}s`;
 const log = (...a: unknown[]) => console.log(ts(), ...a);
@@ -18,7 +18,7 @@ const cwd = process.env.CWD ?? mkdtempSync(path.join(tmpdir(), 'codex-empty-'));
 log('cwd', cwd);
 
 // The user's own configured MCP servers, switched off by name.
-const own = (JSON.parse(execFileSync('codex', ['mcp', 'list', '--json'], { cwd, encoding: 'utf8' })) as { name: string }[]).map((s) => s.name);
+const own = (JSON.parse(execFileSync('codex', ['-c', 'features.plugins=false', '-c', 'features.apps=false', 'mcp', 'list', '--json'], { cwd, encoding: 'utf8' })) as { name: string; enabled: boolean }[]).filter((s) => s.enabled).map((s) => s.name);
 log('own MCP servers turned off:', own.join(', '));
 
 const OFF = process.env.NO_OFF ? [] : [
@@ -28,6 +28,7 @@ const OFF = process.env.NO_OFF ? [] : [
   'features.computer_use=false', 'features.in_app_browser=false', 'features.tool_suggest=false',
   'features.goals=false', 'features.skill_search=false', 'features.sleep_tool=false',
   'web_search="disabled"',
+  ...(process.env.EXTRA_OFF ?? '').split(',').filter(Boolean).map((f) => `features.${f}=false`),
 ];
 const args = [...OFF.flatMap((c) => ['-c', c]), 'app-server'];
 const child = spawn('codex', args, { cwd, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -41,7 +42,7 @@ const request = (method: string, params: unknown) =>
 
 let turnDone: (() => void) | null = null;
 let currentTurn: string | null = null;
-const QUIET = new Set(['item/agentMessage/delta', 'item/reasoning/summaryTextDelta', 'item/reasoning/textDelta', 'thread/tokenUsage/updated', 'account/rateLimits/updated', 'item/reasoning/summaryPartAdded']);
+const QUIETX = new Set(['item/agentMessage/delta', 'item/reasoning/summaryTextDelta', 'item/reasoning/textDelta', 'thread/tokenUsage/updated', 'account/rateLimits/updated', 'item/reasoning/summaryPartAdded']);
 let text = '';
 readline.createInterface({ input: child.stdout }).on('line', (line) => {
   let m: any; try { m = JSON.parse(line); } catch { return log('[raw]', line); }
@@ -64,7 +65,7 @@ readline.createInterface({ input: child.stdout }).on('line', (line) => {
     return;
   }
   if (m.method === 'item/agentMessage/delta') text += m.params.delta;
-  if (QUIET.has(m.method)) return;
+  if (QUIETX.has(m.method) || m.method === 'turn/moderationMetadata' || m.method==='thread/readState/changed') return; if (QUIETX.has(m.method)) return;
   const p = m.params ?? {};
   if (m.method === 'item/started' || m.method === 'item/completed') {
     const it = p.item ?? {};
@@ -84,7 +85,7 @@ const threadParams = {
   sandbox: process.env.SANDBOX ?? 'read-only',
   approvalPolicy: process.env.APPROVAL ?? 'on-request',
   approvalsReviewer: 'user',
-  developerInstructions: 'You are a notes assistant. Your only tools are those of the gateway MCP server.',
+  developerInstructions: process.env.DEV ?? 'You are a notes assistant. Your only tools are those of the gateway MCP server.',
   config: {
     mcp_servers: { ...Object.fromEntries(own.map((n) => [n, { enabled: false }])), gateway: { url: `http://127.0.0.1:${PORT}/mcp`, tool_timeout_sec: 300, startup_timeout_sec: 20, default_tools_approval_mode: process.env.MCP_APPROVAL ?? 'approve' } },
   },

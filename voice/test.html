@@ -12,6 +12,7 @@
     if (q) cid.value = q;
     const mount = () => mountVoice(document.getElementById('voice-slot'), { conversationId: cid.value });
     document.getElementById('go').onclick = mount;
-    mount();
+    const ui = mount();
+    if (new URLSearchParams(location.search).has('auto')) document.querySelector('#voice-slot button').click();
   </script>
 </body>

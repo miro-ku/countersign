@@ -112,8 +112,13 @@ export interface ToolSource {
   id: string;
   /** What the model sees for this agent. */
   tools(agentId: string): Promise<McpToolDef[]>;
-  /** The single actions one call would take; null refuses the tool outright. */
-  actionsOf(tool: string, input: unknown): Action[] | null;
+  /**
+   * The single actions one call would take; null refuses the tool outright.
+   * `ctx.agentId` lets each action carry that agent's own connection.
+   */
+  actionsOf(tool: string, input: unknown, ctx?: { agentId: string }): Action[] | null;
   run(tool: string, input: unknown, ctx: CallCtx): Promise<unknown>;
   undo?(entry: LedgerEntry): Promise<unknown>;
+  /** Whether an executed action can be undone. Without it: writes are, when `undo` exists. */
+  undoable?(action: Action): boolean;
 }

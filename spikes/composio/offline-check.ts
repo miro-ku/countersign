@@ -94,9 +94,22 @@ try {
   }
   pass('POST connections makes the auth config, starts a link and stores a pending connection');
 
+  r = await fetch(`${base}/agents/${agentId}/connect/slack`, { redirect: 'manual' });
+  assert.equal(r.status, 302);
+  assert.equal(new URL(r.headers.get('location')!).host, 'connect.composio.dev');
+  pass('GET connect/slack is a link straight to the authorization page');
+
   r = await fetch(`${base}/agents/${agentId}/connections`);
   const list: any[] = await r.json();
-  assert.equal(list.length, 2);
+  assert.equal(list.length, 3);
+  const failed = list.find((c) => c.toolkit === 'slack');
+  let t1 = Date.now();
+  r = await fetch(`${base}/connections/callback?connection=${failed._id}&status=failed`, { redirect: 'manual' });
+  assert.equal(r.headers.get('location'), 'http://localhost:5173/?connectError=slack');
+  assert.ok(Date.now() - t1 < 1500);
+  pass('a declined authorization returns at once');
+  await fetch(`${base}/connections/${failed._id}`, { method: 'DELETE' });
+  list.shift();
   pass('GET lists the agent\'s connections');
 
   const pending = list.find((c) => c.toolkit === 'slack');
@@ -116,8 +129,7 @@ try {
   pass('DELETE revokes; a revoked connection cannot be completed afterwards');
 
   // Clean up the other pending link at Composio.
-  const other = list.find((c) => c.toolkit === 'gmail');
-  await fetch(`${base}/connections/${other._id}`, { method: 'DELETE' });
+  for (const c of list) await fetch(`${base}/connections/${c._id}`, { method: 'DELETE' });
   console.log(`\n${ok} checks passed`);
 } finally {
   await db.dropDatabase().catch(() => {});

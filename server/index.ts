@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { client } from './db.js';
-import { startChangeStreams } from './changes.js';
+import { startChangeStreams, stopChangeStreams } from './changes.js';
 import { closeAllSessions, registerDriver } from './engine.js';
 import { registerGateway } from './gateway/index.js';
 import { createApi } from './api.js';
@@ -29,6 +29,7 @@ const server = serve({ fetch: app.fetch, port: PORT, hostname: '0.0.0.0' }, () =
 });
 
 async function shutdown() {
+  stopChangeStreams();
   await closeAllSessions();
   server.close();
   await client.close();

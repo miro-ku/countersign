@@ -3,6 +3,15 @@
 export const API_BASE = process.env.VOICE_API_BASE ?? 'http://localhost:4100';
 
 export async function postMessage(conversationId: string, text: string) {
+  try {
+    return await postOnce(conversationId, text);
+  } catch {
+    await new Promise((res) => setTimeout(res, 1500)); // the server may be restarting
+    return postOnce(conversationId, text);
+  }
+}
+
+async function postOnce(conversationId: string, text: string) {
   const r = await fetch(`${API_BASE}/api/conversations/${conversationId}/messages`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -26,7 +35,7 @@ export async function answerAsk(
 }
 
 /** Reads the conversation's event stream until `signal` aborts; reconnects on a drop. */
-export async function followEvents(conversationId: string, onEvent: (e: any) => void, signal: AbortSignal) {
+export async function followEvents(conversationId: string, onEvent: (e: any) => void, signal: AbortSignal, onConnect?: () => void) {
   while (!signal.aborted) {
     try {
       const r = await fetch(`${API_BASE}/api/conversations/${conversationId}/events`, {
@@ -34,6 +43,7 @@ export async function followEvents(conversationId: string, onEvent: (e: any) => 
         signal,
       });
       if (!r.ok || !r.body) throw new Error(`event stream ${r.status}`);
+      onConnect?.();
       const decoder = new TextDecoder();
       let buf = '';
       for await (const chunk of r.body as any as AsyncIterable<Uint8Array>) {
@@ -57,4 +67,11 @@ export async function followEvents(conversationId: string, onEvent: (e: any) => 
     }
     await new Promise((res) => setTimeout(res, 1000));
   }
+}
+
+export async function openAsks(conversationId: string): Promise<any[]> {
+  const r = await fetch(`${API_BASE}/api/conversations/${conversationId}`);
+  if (!r.ok) return [];
+  const j: any = await r.json();
+  return (j.asks ?? []).filter((a: any) => a.status === 'open');
 }

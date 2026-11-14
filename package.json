@@ -1,5 +1,5 @@
 {
-  "name": "governed-agents",
+  "name": "countersign",
   "private": true,
   "type": "module",
   "scripts": {

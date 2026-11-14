@@ -24,6 +24,11 @@ export function conversationOf(kind: ChangeKind, doc: any): string | undefined {
   return doc.conversationId;
 }
 
+let stopping = false;
+export function stopChangeStreams(): void {
+  stopping = true;
+}
+
 export function startChangeStreams(): void {
   for (const [name, kind] of watched) watch(name, kind);
 }
@@ -37,6 +42,7 @@ function watch(name: string, kind: ChangeKind): void {
     if (event.fullDocument) changes.emit('change', { kind, doc: event.fullDocument });
   });
   stream.on('error', (err) => {
+    if (stopping) return;
     console.error(`change stream on ${name} failed, restarting:`, err.message);
     stream.close().catch(() => {});
     setTimeout(() => watch(name, kind), 1000);

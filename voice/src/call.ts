@@ -12,7 +12,7 @@ import {
   type RemoteParticipant,
   type RemoteTrack,
 } from '@livekit/rtc-node';
-import { answerAsk, followEvents, postMessage } from './api.ts';
+import { answerAsk, followEvents, openAsks, postMessage } from './api.ts';
 import { judge } from './judge.ts';
 import {
   HEAR_RATE, Listener, SPEAK_RATE, completeSentences, pickVoice, speakable, synthesize,
@@ -77,7 +77,12 @@ export class Call {
     opts.source = TrackSource.SOURCE_MICROPHONE;
     await this.room.localParticipant!.publishTrack(track, opts);
     console.log(`[voice] in room ${this.conversationId}${this.echo ? ' (echo mode)' : ''}`);
-    if (!this.echo) void followEvents(this.conversationId, (e) => this.onEvent(e), this.stop.signal);
+    if (!this.echo) {
+      // Requests already waiting when the stream (re)connects are asked about too.
+      const refresh = () =>
+        openAsks(this.conversationId).then((asks) => asks.forEach((a) => this.onAsk(a))).catch(() => {});
+      void followEvents(this.conversationId, (e) => this.onEvent(e), this.stop.signal, refresh);
+    }
     this.maybeLeave();
   }
 
@@ -94,7 +99,13 @@ export class Call {
       batch.push(Buffer.from(b));
       n += frame.samplesPerChannel;
       if (n >= HEAR_RATE / 10) {
-        this.listener.push(Buffer.concat(batch));
+        const chunk = Buffer.concat(batch);
+        if (process.env.VOICE_DEBUG) {
+          let peak = 0;
+          for (let i = 0; i < chunk.length; i += 2) peak = Math.max(peak, Math.abs(chunk.readInt16LE(i)));
+          if (peak > 500) console.log(`[voice] level ${p.identity} ${peak}`);
+        }
+        this.listener.push(chunk);
         batch = [];
         n = 0;
       }

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Provider, ProviderDriver, ProviderEvent, ProviderSession, Step } from '../shared/types.js';
 import { col, newId, nextSeq, type ConversationDoc, type MessageDoc } from './db.js';
-import { closeOpenAsks, mintToken, revokeToken, setRunningExecution, whenLateApproval } from './gateway/index.js';
+import { closeOpenAsks, mintToken, releaseHeldCalls, revokeToken, setRunningExecution, whenLateApproval } from './gateway/index.js';
 
 const PORT = Number(process.env.PORT || 4100);
 const IDLE_MS = 15 * 60 * 1000;
@@ -134,6 +134,9 @@ async function runTurn(conversationId: string) {
   // The newest message from the person or an event triggers the turn.
   const trigger = await col.messages.find({ conversationId, role: { $in: ['user', 'event'] } }).sort({ seq: -1 }).limit(1).next();
   if (!trigger) return;
+  // Nothing waiting: the newest reply already came after it.
+  const lastReply = await col.messages.find({ conversationId, role: 'agent' }).sort({ seq: -1 }).limit(1).next();
+  if (lastReply && lastReply.seq > trigger.seq) return;
 
   const executionId = newId();
   const run: Running = { executionId, provider: p, key, ending: null };
@@ -242,10 +245,14 @@ async function runTurn(conversationId: string) {
         await col.executions.updateOne({ _id: executionId }, { $set: { model: ev.model, providerSessionId: ev.sessionId } });
         await col.messages.updateOne({ _id: reply._id }, { $set: { model: ev.model } });
       } else if (ev.type === 'text') {
-        streamed += ev.delta;
         const last = steps[steps.length - 1];
         if (last && 'text' in last) last.text += ev.delta;
-        else steps.push({ text: ev.delta });
+        else {
+          // Text after a tool call is a new paragraph of the reply.
+          if (streamed) streamed += '\n\n';
+          steps.push({ text: ev.delta });
+        }
+        streamed += ev.delta;
         dirty = true;
         await flush();
       } else if (ev.type === 'tool') {
@@ -302,6 +309,7 @@ export async function switchProvider(conversationId: string, provider: string): 
   if (run && run.provider !== provider) {
     // Open asks stay open; the next turn runs on the new provider.
     run.ending = 'handed_off';
+    releaseHeldCalls(conversationId, run.provider);
     await warm.get(run.key)?.session.interrupt();
     // The new provider carries on from where the old one was cut off.
     kick(conversationId);

@@ -59,7 +59,9 @@ which feature is off.
 
 ## Collections
 
-Each has a `$jsonSchema` validator (`validationAction: "error"`).
+Each has a `$jsonSchema` validator (`validationAction: "error"`). Every `_id`
+is a string (24 hex characters, ordered by creation time), and so is every
+field that refers to one. `npm run setup:db` creates them all (safe to re-run).
 
 - `agents` `{ _id, ownerId, name, instructions, instructionsHash, version, defaultProvider, createdAt }`
 - `connections` `{ _id, agentId, ownerId, toolkit, composioUserId, composioAccountId, status: 'pending'|'active'|'revoked', connectedAt, revokedAt }`
@@ -71,6 +73,7 @@ Each has a `$jsonSchema` validator (`validationAction: "error"`).
 - `decisions` `{ _id, conversationId, fingerprint, effect: 'approved'|'declined', scope: 'once'|'conversation', askId, by, at, usedAt }` (unique index on `{ conversationId, fingerprint }`)
 - `ledger` append-only `{ _id, seq, at, ownerId, agentId, agentVersion, conversationId, executionId, provider, model, action, kind, args, fingerprint, ruleId, outcome: 'allowed'|'denied'|'asked'|'approved'|'declined'|'executed'|'failed'|'undone', decidedBy, connectionId, result, undoable, undoOf }`
 - `notes` `{ _id, agentId, text, at }` (the built-in demo tool's data)
+- `counters` `{ _id, n }` (the ledger `seq`, and each conversation's message `seq`)
 
 ## Conversations: the messages are the truth
 
@@ -171,9 +174,11 @@ export interface Action { name: string; kind: 'read' | 'write'; args: unknown; s
 export interface ToolSource {
   id: string;
   tools(agentId: string): Promise<McpToolDef[]>;            // what the model sees
-  actionsOf(tool: string, input: unknown): Action[] | null; // null = tool refused outright
+  // null = tool refused outright; ctx.agentId lets an action carry that agent's own connection
+  actionsOf(tool: string, input: unknown, ctx?: { agentId: string }): Action[] | null;
   run(tool: string, input: unknown, ctx: CallCtx): Promise<unknown>;
   undo?(entry: LedgerEntry): Promise<unknown>;
+  undoable?(action: Action): boolean;   // default: writes are, when undo exists
 }
 ```
 
@@ -215,7 +220,7 @@ export interface ToolSource {
    `connectionId` used and whether it is `undoable`.
 
 **Answering** (`POST /api/asks/:id/answer`): `findOneAndUpdate({_id, status:'open'})`
-so one answer wins; writes the `decisions` entry (`once` or `conversation`;
+so one answer wins; in the same transaction writes the `decisions` entry (`once` or `conversation`;
 a decline is always remembered for the conversation) and a ledger entry
 `approved` or `declined` with who and how. A typed message from the person
 while asks are open marks them `replied`. A spoken answer is never treated as
@@ -224,17 +229,19 @@ approval unless the voice judge returned `yes`.
 ## HTTP API
 
 - `POST /api/agents` `{ name, instructions, defaultProvider }`; `GET /api/agents`; `GET /api/agents/:id`; `PATCH /api/agents/:id` (new instructions → new version)
-- `GET /api/agents/:id/connections`; `POST /api/agents/:id/connections` `{ toolkit }` → `{ redirectUrl }`; `GET /api/connections/callback` (Composio returns here, then redirects to the page); `DELETE /api/connections/:id`
-- `POST /api/conversations` `{ agentId }`; `GET /api/conversations/:id` (conversation, messages, open asks, last 100 ledger entries)
+- `GET /api/agents/:id/connections`; `POST /api/agents/:id/connections` `{ toolkit }` → `{ redirectUrl }`; `GET /api/agents/:id/connect/:toolkit` (starts the connection and redirects straight to the authorization page, so a plain link works); `GET /api/connections/callback` (Composio returns here, then redirects to the page); `DELETE /api/connections/:id`
+- `POST /api/conversations` `{ agentId }`; `GET /api/conversations?agentId=` (newest 50); `GET /api/conversations/:id` (conversation, messages, open asks, last 100 ledger entries)
 - `POST /api/conversations/:id/messages` `{ text, source }` → `202`
 - `POST /api/conversations/:id/provider` `{ provider }`; `POST /api/conversations/:id/stop`
 - `POST /api/asks/:id/answer` `{ answer: 'approve'|'decline', scope: 'once'|'conversation', source: 'button'|'voice', transcript?, verdict? }`
-- `POST /api/ledger/:id/undo`
+- `POST /api/ledger/:id/undo` (an `executed`, `undoable` entry, once; writes a new `undone` entry with `undoOf`)
+- `GET /api/rules`
 - `GET /api/conversations/:id/events` Server-Sent Events, fed by change streams:
   `{ type: 'message', message }` (insert and every update, including streaming),
   `{ type: 'ask', ask }`, `{ type: 'ledger', entry }`,
   `{ type: 'conversation', conversation }`, `{ type: 'execution', execution }`,
-  `{ type: 'connection', connection }`
+  `{ type: 'connection', connection }`, each as one `data:` line. On connect
+  an `event: ready` is sent, then `event: ping` every 15 seconds.
 
 ## Change streams in use
 
