@@ -25,8 +25,12 @@ export class Listener {
       model_id: 'scribe_v2_realtime',
       audio_format: 'pcm_16000',
       commit_strategy: 'vad',
-      vad_silence_threshold_secs: '0.7',
+      // Long enough that a breath mid-sentence does not end the turn; turning
+      // the microphone off ends it at once (see endTurn).
+      vad_silence_threshold_secs: '1.0',
       language_code: 'en',
+      // Murmurs and fillers are left out of the transcript.
+      no_verbatim: 'true',
     });
     const ws = new WebSocket(`wss://api.elevenlabs.io/v1/speech-to-text/realtime?${qs}`, {
       headers: { 'xi-api-key': this.apiKey },
@@ -66,6 +70,13 @@ export class Listener {
     if (!this.ws) this.open();
     if (this.ready && this.ws?.readyState === WebSocket.OPEN) this.sendNow(pcm);
     else if (this.pending.length < 50) this.pending.push(pcm);
+  }
+
+  /** The person stopped talking (their microphone went off): hear silence, so the turn ends now. */
+  endTurn() {
+    if (this.closed || !this.ws) return;
+    const quarter = Buffer.alloc((HEAR_RATE / 4) * 2);
+    for (let i = 0; i < 6; i++) this.push(quarter);
   }
 
   close() {

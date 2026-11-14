@@ -42,6 +42,8 @@ export function aloud(summary: string): string {
     .trim();
 }
 
+const BACKCHANNEL = new Set(['mm', 'mhm', 'hmm', 'uh', 'um', 'yeah', 'yep', 'ok', 'okay', 'right', 'sure', 'huh']);
+
 interface OpenAsk { id: string; summary: string; tries: number }
 
 export class Call {
@@ -83,6 +85,8 @@ export class Call {
     this.room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _pub, p: RemoteParticipant) => {
       if (track.kind === TrackKind.KIND_AUDIO) void this.hear(track, p);
     });
+    // A muted microphone sends no audio at all, so the end of the turn is told to the listener.
+    this.room.on(RoomEvent.TrackMuted, () => this.listener.endTurn());
     this.room.on(RoomEvent.ParticipantConnected, () => this.cancelLeave());
     this.room.on(RoomEvent.ParticipantDisconnected, () => this.maybeLeave());
     this.room.on(RoomEvent.Disconnected, () => void this.close());
@@ -129,7 +133,10 @@ export class Call {
 
   private onPartial(text: string) {
     // A word over the agent's voice is a cut-in: it stops talking.
-    if (this.playing && /\w{2,}/.test(text)) this.bargeIn();
+    // An "mm-hmm" while it talks is listening, not a cut-in.
+    const words = text.toLowerCase().match(/[a-z']{2,}/g) ?? [];
+    const real = words.filter((w) => !BACKCHANNEL.has(w));
+    if (this.playing && (real.length >= 1 || words.length >= 3)) this.bargeIn();
   }
 
   private async onFinal(text: string) {
@@ -142,6 +149,7 @@ export class Call {
     if (this.judging) return;
     try {
       await postMessage(this.conversationId, text);
+      this.tell({ type: 'state', state: 'working' });
     } catch (e: any) {
       console.warn(`[voice] ${e.message}`);
       this.say('Sorry, I could not reach the agent.');
