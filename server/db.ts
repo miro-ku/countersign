@@ -135,6 +135,11 @@ export interface RuleDoc {
   /** What the rule covers, in plain words. */
   title?: string;
   reason: string;
+  /**
+   * Applied by a judging model reading `source`, not by `match`: for rules about
+   * meaning, which no test on fields can express. It can ask or deny, never allow.
+   */
+  judged?: boolean;
   /** The sentence a person wrote, when the rule was made from one. */
   source?: string;
   createdBy?: string;

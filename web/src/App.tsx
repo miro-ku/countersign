@@ -414,6 +414,9 @@ function Rules({ agentId }: { agentId: string }) {
                   )}
               </div>
               <p className="ml-12 text-xs text-muted-foreground">{r.reason}</p>
+              {r.agentId != null && (
+                <p className="ml-12 text-[11px] text-muted-foreground/80">{r.judged ? 'Read against each action by a judging model' : 'Checked exactly, on the action\'s own fields'}</p>
+              )}
             </li>
           ))}
         </ol>

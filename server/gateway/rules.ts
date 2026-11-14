@@ -84,6 +84,7 @@ function test(pattern: string, text: string): boolean {
 
 /** A rule matches when every field it has matches. */
 export function ruleMatches(rule: RuleDoc, action: Action): boolean {
+  if (rule.judged) return false; // read by the judge, not matched
   const m = rule.match ?? {};
   const fields = [m.action, m.kind, m.actionPattern, m.argsPattern].filter((f) => f !== undefined);
   if (!fields.length && !m.conditions?.length) return false;

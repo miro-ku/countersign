@@ -9,6 +9,7 @@ import type { Action, CallCtx, LedgerEntry, McpToolDef, Provider, ToolSource } f
 import { client, col, db, newId, OWNER_ID, type AskDoc, type RuleDoc } from '../db.js';
 import { changes } from '../changes.js';
 import { createComposioSource, kindOf } from '../integrations/index.js';
+import { judgeAction } from '../assist.js';
 import { appendLedger } from './ledger.js';
 import { fingerprint } from './fingerprint.js';
 import { isNotesTool, notesSource } from './notes.js';
@@ -108,11 +109,37 @@ async function verdictFor(conversationId: string, rules: RuleDoc[], action: Acti
       return { effect: 'deny', reason: 'The app connection it needs is not active.' };
     }
   }
+  // Rules about meaning are read by a judging model. It can make things
+  // stricter (ask, deny) and never looser, so fooling it gains nothing.
+  const judged = action.kind === 'write' ? await judgedRule(rules, action, fp) : null;
+  if (judged?.effect === 'deny') return { effect: 'deny', reason: judged.reason, ruleId: judged.ruleId };
   const decision = await col.decisions.findOne({ conversationId, fingerprint: fp });
   if (decision?.effect === 'declined') return { effect: 'deny', reason: 'They were asked and said no.' };
   if (decision?.effect === 'approved') return { effect: 'allow', onceDecision: decision.scope === 'once' };
+  if (judged) return { effect: 'ask', ruleId: judged.ruleId };
   if (!rule) return { effect: 'ask' };
   return { effect: rule.effect, ruleId: rule._id };
+}
+
+// One reading per action and set of rules: a retry of the same action is not judged again.
+const readings = new Map<string, { effect: 'ask' | 'deny'; ruleId?: string; reason: string } | null>();
+
+async function judgedRule(rules: RuleDoc[], action: Action, fp: string) {
+  const sentences = rules.filter((r) => r.judged && r.source && r.effect !== 'allow');
+  if (!sentences.length) return null;
+  const key = `${fp}|${sentences.map((r) => r._id).join(',')}`;
+  if (readings.has(key)) return readings.get(key)!;
+  const verdict = await judgeAction(action, sentences.map((r) => ({ sentence: r.source! })));
+  let reading: { effect: 'ask' | 'deny'; ruleId?: string; reason: string } | null;
+  if (!verdict) reading = { effect: 'ask', reason: 'The rules could not be read just now, so a person is asked.' };
+  else if (verdict.rule < 0) reading = null;
+  else {
+    const hit = sentences[verdict.rule];
+    reading = { effect: hit.effect as 'ask' | 'deny', ruleId: hit._id, reason: `${hit.reason || hit.source} (${verdict.why})` };
+  }
+  if (readings.size > 500) readings.clear();
+  readings.set(key, reading);
+  return reading;
 }
 
 // ── Holding a call ───────────────────────────────────────────────

@@ -158,6 +158,7 @@ export function createApi(): Hono {
       const rule = {
         _id: newId(), agentId: agent._id, match: compiled.match as any, effect: compiled.effect,
         title: compiled.title, reason: compiled.reason, source: text, createdBy: OWNER_ID, createdAt: new Date(),
+        ...(compiled.judged ? { judged: true } : {}),
       };
       checkRule(rule);
       await col.rules.insertOne(rule);

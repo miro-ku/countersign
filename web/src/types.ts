@@ -24,6 +24,9 @@ export interface Rule {
   effect: 'allow' | 'ask' | 'deny';
   /** What the rule covers, in plain words. */
   title?: string;
+  /** Applied by a judging model reading the sentence, not by a test on fields. */
+  judged?: boolean;
+  source?: string;
   reason: string;
 }
 
