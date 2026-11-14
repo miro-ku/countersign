@@ -14,22 +14,33 @@ const STATES = { listening: 'Listening', speaking: 'Speaking', judging: 'Checkin
 export function mountVoice(element, { conversationId, serviceUrl = SERVICE } = {}) {
   element.innerHTML = '';
   const box = document.createElement('div');
-  box.style.cssText = 'display:flex;align-items:center;gap:8px;font:13px system-ui,sans-serif;min-width:0';
+  box.style.cssText = 'display:flex;align-items:center;gap:8px;font:13px inherit;font-family:inherit;min-width:0';
   const button = document.createElement('button');
   button.type = 'button';
-  button.textContent = 'Join call';
-  button.style.cssText = 'padding:4px 10px;border-radius:6px;border:1px solid #888;background:#fff;cursor:pointer;white-space:nowrap';
+  const PHONE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>';
+  // An icon only: plain at rest, red while a call is on.
+  function showButton(inCall) {
+    button.innerHTML = PHONE;
+    button.title = inCall ? 'Leave call' : 'Join call';
+    button.setAttribute('aria-label', button.title);
+    button.style.background = inCall ? '#dc2626' : '#fff';
+    button.style.color = inCall ? '#fff' : '#18181b';
+    button.style.borderColor = inCall ? '#dc2626' : '#e4e4e7';
+  }
+  button.style.cssText = 'display:flex;align-items:center;justify-content:center;width:36px;height:36px;padding:0;border-radius:10px;border:1px solid #e4e4e7;background:#fff;color:#18181b;cursor:pointer;flex:none';
   const meter = document.createElement('div');
   meter.title = 'Microphone level';
-  meter.style.cssText = 'width:60px;height:6px;border-radius:3px;background:#ddd;overflow:hidden;flex:none';
+  // The level is only worth showing while a call is on.
+  meter.style.cssText = 'display:none;width:48px;height:6px;border-radius:3px;background:#e4e4e7;overflow:hidden;flex:none';
   const bar = document.createElement('div');
-  bar.style.cssText = 'height:100%;width:0;background:#2a9d4b;transition:width 60ms linear';
+  bar.style.cssText = 'height:100%;width:0;background:#059669;transition:width 60ms linear';
   meter.appendChild(bar);
   const status = document.createElement('span');
-  status.style.cssText = 'color:#666;white-space:nowrap';
+  status.style.cssText = 'color:#71717a;font-size:12px;white-space:nowrap';
   const line = document.createElement('span');
-  line.style.cssText = 'color:#222;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0';
+  line.style.cssText = 'color:#3f3f46;font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0';
   box.append(button, meter, status, line);
+  showButton(false);
   element.appendChild(box);
 
   let room = null;
@@ -86,10 +97,12 @@ export function mountVoice(element, { conversationId, serviceUrl = SERVICE } = {
       await room.localParticipant.setMicrophoneEnabled(true);
       const pub = [...room.localParticipant.audioTrackPublications.values()][0];
       if (pub?.track?.mediaStreamTrack) startMeter(pub.track.mediaStreamTrack);
+      meter.style.display = 'block';
       setStatus('Listening');
-      button.textContent = 'Leave';
+      showButton(true);
     } catch (e) {
-      setStatus(`Call failed: ${e.message}`);
+      setStatus('The call could not start. Try again.');
+      status.title = e.message;
       cleanup();
     } finally {
       button.disabled = false;
@@ -99,17 +112,19 @@ export function mountVoice(element, { conversationId, serviceUrl = SERVICE } = {
   function cleanup() {
     cancelAnimationFrame(raf);
     bar.style.width = '0';
+    meter.style.display = 'none';
+    line.textContent = '';
     audioCtx?.close().catch(() => {});
     audioCtx = null;
     for (const el of audios.splice(0)) el.remove();
     const r = room;
     room = null;
     r?.disconnect().catch(() => {});
-    button.textContent = 'Join call';
+    showButton(false);
   }
 
   button.addEventListener('click', () => {
-    if (room) { cleanup(); setStatus('Left'); } else join();
+    if (room) { cleanup(); setStatus(''); } else join();
   });
 
   return { leave: cleanup };

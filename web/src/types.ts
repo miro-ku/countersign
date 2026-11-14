@@ -20,6 +20,8 @@ export interface Rule {
   agentId: string | null;
   match: { action?: string; kind?: 'read' | 'write'; actionPattern?: string; argsPattern?: string };
   effect: 'allow' | 'ask' | 'deny';
+  /** What the rule covers, in plain words. */
+  title?: string;
   reason: string;
 }
 
@@ -111,6 +113,8 @@ export interface LedgerRow {
   provider: Provider;
   model?: string;
   action: string;
+  /** The action in plain words. */
+  summary?: string;
   kind: 'read' | 'write';
   args: unknown;
   fingerprint: string;

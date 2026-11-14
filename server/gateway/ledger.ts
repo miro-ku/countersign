@@ -9,6 +9,8 @@ export interface LedgerInput {
   provider: Provider | string;
   model?: string | null;
   action: string;
+  /** The action in plain words, as a person was or would be asked about it. */
+  summary?: string | null;
   kind: 'read' | 'write';
   args: unknown;
   fingerprint: string;

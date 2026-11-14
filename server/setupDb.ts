@@ -122,18 +122,18 @@ async function main() {
   }
 
   const defaults = [
-    { _id: 'default-read', agentId: null, match: { kind: 'read' as const }, effect: 'allow' as const, reason: 'Reading is allowed by default.' },
-    { _id: 'default-write', agentId: null, match: { kind: 'write' as const }, effect: 'ask' as const, reason: 'Changes are asked about by default.' },
+    { _id: 'default-read', agentId: null, match: { kind: 'read' as const }, effect: 'allow' as const, title: 'Anything that only reads', reason: 'Reading is allowed by default.' },
+    { _id: 'default-write', agentId: null, match: { kind: 'write' as const }, effect: 'ask' as const, title: 'Anything that changes something', reason: 'Changes are asked about by default.' },
     {
       _id: 'no-card-numbers', agentId: null,
       // 13 to 19 digits, optionally separated by single spaces or dashes.
       match: { kind: 'write' as const, argsPattern: '(?<![0-9])[0-9](?:[ -]?[0-9]){12,18}(?![0-9])' },
-      effect: 'deny' as const, reason: 'Card numbers are never sent anywhere.',
+      effect: 'deny' as const, title: 'Any change that contains a card number', reason: 'Card numbers are never sent anywhere.',
     },
     {
       _id: 'no-deleting-channels', agentId: null,
       match: { actionPattern: '^[A-Z]+_(ARCHIVE|DELETE)_(A_)?(PUBLIC_OR_PRIVATE_)?(CHANNEL|CONVERSATION)' },
-      effect: 'deny' as const, reason: 'Channels are never deleted or archived by an agent.',
+      effect: 'deny' as const, title: 'Deleting or archiving a channel', reason: 'Channels are never deleted or archived by an agent.',
     },
   ];
   for (const rule of defaults) checkRule(rule);

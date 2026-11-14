@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { BotIcon, CheckIcon, KeyboardIcon, MicIcon, MinusIcon, ShieldAlertIcon, XIcon } from 'lucide-react';
+import { BotIcon, CheckIcon, ChevronRightIcon, KeyboardIcon, LoaderIcon, MicIcon, MinusIcon, ShieldAlertIcon, ShieldXIcon, XIcon } from 'lucide-react';
 import {
   Confirmation, ConfirmationAction, ConfirmationActions, ConfirmationRequest, ConfirmationTitle,
 } from '@/components/ai-elements/confirmation';
@@ -11,11 +11,12 @@ import {
   PromptInput, PromptInputBody, PromptInputFooter, PromptInputSubmit, PromptInputTextarea, PromptInputTools,
 } from '@/components/ai-elements/prompt-input';
 import { Shimmer } from '@/components/ai-elements/shimmer';
-import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput, type ToolPart } from '@/components/ai-elements/tool';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
-import { api, cap, type Live } from './api.ts';
-import { PROVIDER_LABEL, type Ask, type Message as Msg, type Provider, type Step } from './types.ts';
+import { api, cap, pretty, type Live } from './api.ts';
+import { PROVIDER_LABEL, type Ask, type LedgerRow, type Message as Msg, type Provider, type Step } from './types.ts';
+import { describeCall, refusalStatus, type StepStatus } from './words.ts';
 
 type Item = { kind: 'message'; m: Msg } | { kind: 'ask'; a: Ask };
 
@@ -46,11 +47,13 @@ function timeline(live: Live): Item[] {
   return items;
 }
 
-export function Chat({ live, conversationId, agentId, running, onStop, fail }: {
+export function Chat({ live, conversationId, agentId, running, onStop, fail, provider, onSwitch }: {
   live: Live; conversationId: string; agentId: string; running: boolean; onStop: () => void; fail: (e: unknown) => void;
+  provider: Provider; onSwitch: (provider: Provider) => void;
 }) {
   const items = useMemo(() => timeline(live), [live.messages, live.asks]);
   const asks = Object.values(live.asks);
+  const ledger = useMemo(() => Object.values(live.ledger), [live.ledger]);
   const voiceSlot = useRef<HTMLDivElement>(null);
 
   // The voice service serves its own call widget; when it is down the slot stays empty.
@@ -78,7 +81,7 @@ export function Chat({ live, conversationId, agentId, running, onStop, fail }: {
             />
           ) : (
             items.map((it) =>
-              it.kind === 'message' ? <MessageView key={it.m._id} m={it.m} asks={asks} />
+              it.kind === 'message' ? <MessageView key={it.m._id} m={it.m} asks={asks} ledger={ledger} />
                 : <AskView key={it.a._id} a={it.a} fail={fail} />,
             )
           )}
@@ -99,7 +102,9 @@ export function Chat({ live, conversationId, agentId, running, onStop, fail }: {
               <PromptInputTextarea placeholder="Message the agent…" aria-label="Message" className="min-h-11 text-sm" />
             </PromptInputBody>
             <PromptInputFooter className="pt-0">
-              <PromptInputTools />
+              <PromptInputTools>
+                <EngineSwitch provider={provider} onSwitch={onSwitch} />
+              </PromptInputTools>
               <PromptInputSubmit status={running ? 'streaming' : undefined} onStop={onStop} />
             </PromptInputFooter>
           </PromptInput>
@@ -108,6 +113,30 @@ export function Chat({ live, conversationId, agentId, running, onStop, fail }: {
         </div>
       </div>
     </>
+  );
+}
+
+/** Which engine runs the agent; it can be changed at any moment, even mid-turn. */
+function EngineSwitch({ provider, onSwitch }: { provider: Provider; onSwitch: (provider: Provider) => void }) {
+  return (
+    <div role="tablist" aria-label="Engine" className="flex items-center gap-0.5 rounded-lg bg-muted p-0.5">
+      {(Object.keys(PROVIDER_LABEL) as Provider[]).map((p) => (
+        <button
+          key={p}
+          type="button"
+          role="tab"
+          aria-selected={p === provider}
+          onClick={() => onSwitch(p)}
+          className={cn(
+            'flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition',
+            p === provider ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          <span className={cn('size-1.5 rounded-full', PROVIDER_DOT[p])} />
+          {PROVIDER_LABEL[p]}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -121,7 +150,7 @@ function ProviderBadge({ provider }: { provider?: Provider }) {
   );
 }
 
-function MessageView({ m, asks }: { m: Msg; asks: Ask[] }) {
+function MessageView({ m, asks, ledger }: { m: Msg; asks: Ask[]; ledger: LedgerRow[] }) {
   if (m.role === 'event') {
     const text = m.text.replace(/\bclaude-code\b/g, 'Claude Code').replace(/\bcodex\b/g, 'Codex');
     return (
@@ -151,27 +180,27 @@ function MessageView({ m, asks }: { m: Msg; asks: Ask[] }) {
         {m.generating && <Shimmer className="text-xs">writing…</Shimmer>}
       </div>
       <MessageContent className="w-full gap-3 text-[15px] leading-relaxed">
-        <Body m={m} asks={asks} />
+        <Body m={m} asks={asks} ledger={ledger} />
       </MessageContent>
     </Message>
   );
 }
 
 /** The reply in the order it happened: text and tool calls interleaved. */
-function Body({ m, asks }: { m: Msg; asks: Ask[] }) {
+function Body({ m, asks, ledger }: { m: Msg; asks: Ask[]; ledger: LedgerRow[] }) {
   const steps = m.steps ?? [];
   const responses = new Map<string, Extract<Step, { toolResponse: unknown }>['toolResponse']>();
   for (const s of steps) if ('toolResponse' in s) responses.set(s.toolResponse.ref, s.toolResponse);
   const hasTextSteps = steps.some((s) => 'text' in s);
   const tool = (req: { ref: string; name: string; input: unknown }, key: string | number) => (
-    <ToolCall key={key} req={req} res={responses.get(req.ref)} asks={asks} />
+    <ToolCall key={key} req={req} res={responses.get(req.ref)} asks={asks} ledger={ledger} />
   );
 
   if (!hasTextSteps) {
     return (
       <>
         {steps.map((s, i) => 'toolRequest' in s && tool(s.toolRequest, i))}
-        {m.text && <MessageResponse isAnimating={m.generating}>{m.text}</MessageResponse>}
+        {m.text && <MessageResponse isAnimating={m.generating}>{plainFailure(m.text)}</MessageResponse>}
       </>
     );
   }
@@ -186,33 +215,57 @@ function Body({ m, asks }: { m: Msg; asks: Ask[] }) {
   );
 }
 
-/** A tool call row, with the status it is in right now. */
-function ToolCall({ req, res, asks }: {
+/** A turn that could not run says so in words a person can act on. */
+function plainFailure(text: string): string {
+  if (!/^The turn could not run:/.test(text)) return text;
+  return 'This turn was cut off before it finished. Send the message again.';
+}
+
+const STEP_TONE: Record<StepStatus['tone'], { chip: string; icon: string }> = {
+  ok: { chip: 'bg-emerald-50 text-emerald-700', icon: 'text-emerald-600' },
+  running: { chip: 'bg-muted text-muted-foreground', icon: 'text-muted-foreground' },
+  waiting: { chip: 'bg-amber-50 text-amber-700', icon: 'text-amber-600' },
+  blocked: { chip: 'bg-red-50 text-red-700', icon: 'text-red-600' },
+  quiet: { chip: 'bg-muted text-muted-foreground', icon: 'text-muted-foreground' },
+  failed: { chip: 'bg-red-50 text-red-700', icon: 'text-red-600' },
+};
+
+/** One tool call in plain words, with where it stands. A refusal is not an error. */
+function ToolCall({ req, res, asks, ledger }: {
   req: { ref: string; name: string; input: unknown };
   res?: { output: unknown; isError: boolean };
   asks: Ask[];
+  ledger: LedgerRow[];
 }) {
   const name = toolName(req.name);
-  const ask = asks.find((a) => a.action === name && JSON.stringify(a.args) === JSON.stringify(req.input));
-  let state: ToolPart['state'];
-  if (!res) state = ask?.status === 'open' ? 'approval-requested' : 'input-available';
-  else if (res.isError) state = ask?.status === 'declined' ? 'output-denied' : 'output-error';
-  else state = 'output-available';
-  const errorText = res?.isError ? reasonOf(res.output) : undefined;
+  const title = describeCall(name, req.input, ledger);
+  const waiting = asks.some((a) => a.status === 'open' && (a.action === name || title.toLowerCase().includes(a.summary.toLowerCase())));
+  let status: StepStatus;
+  if (!res) status = waiting ? { tone: 'waiting', label: 'Waiting for your approval' } : { tone: 'running', label: 'Running' };
+  else if (res.isError) status = refusalStatus(reasonOf(res.output));
+  else status = { tone: 'ok', label: 'Done' };
+  const tone = STEP_TONE[status.tone];
+  const Icon = { ok: CheckIcon, running: LoaderIcon, waiting: ShieldAlertIcon, blocked: ShieldXIcon, quiet: MinusIcon, failed: XIcon }[status.tone];
 
   return (
-    <Tool className="mb-0 rounded-lg bg-background">
-      <ToolHeader type="dynamic-tool" toolName={name} state={state} title={name} className="px-3 py-2 [&>div>span:not([data-slot])]:font-mono [&>div>span:not([data-slot])]:text-[13px] [&>div>span:not([data-slot])]:font-normal" />
-      {errorText && (
-        <p className="-mt-1 truncate px-3 pb-2 pl-9 text-xs text-red-700" title={errorText}>
-          {/stopped while running/i.test(errorText) ? 'Stopped while running.' : `${state === 'output-denied' || /refused|said no|denied/i.test(errorText) ? 'Refused' : 'Failed'}: ${errorText}`}
-        </p>
-      )}
-      <ToolContent>
-        <ToolInput input={req.input} />
-        {res && <ToolOutput output={res.isError ? undefined : res.output} errorText={errorText} />}
-      </ToolContent>
-    </Tool>
+    <Collapsible className="group rounded-lg border bg-background">
+      <CollapsibleTrigger className="flex w-full items-start gap-2.5 px-3 py-2 text-left">
+        <Icon className={cn('mt-0.5 size-4 shrink-0', tone.icon, status.tone === 'running' && 'animate-spin')} />
+        <span className="min-w-0 flex-1">
+          <span className="block text-[13px] leading-snug break-words">{title}</span>
+          {status.detail && <span className="mt-0.5 block text-xs text-muted-foreground">{status.detail}</span>}
+        </span>
+        <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium', tone.chip)}>{status.label}</span>
+        <ChevronRightIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground transition group-data-[state=open]:rotate-90" />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="space-y-2 border-t px-3 py-2 text-xs">
+          <div className="font-mono text-[11px] text-muted-foreground">{name}</div>
+          <pre className="max-h-40 overflow-auto font-mono whitespace-pre-wrap break-all">{pretty(req.input)}</pre>
+          {res && <pre className="max-h-40 overflow-auto border-t pt-2 font-mono whitespace-pre-wrap break-all text-muted-foreground">{res.isError ? reasonOf(res.output) : pretty(res.output)}</pre>}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 

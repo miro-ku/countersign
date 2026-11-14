@@ -104,7 +104,7 @@ export function App() {
           <div className="flex size-6 items-center justify-center rounded-md bg-foreground text-background">
             <ShieldCheckIcon className="size-3.5" />
           </div>
-          <span className="text-sm font-semibold tracking-tight">Governed agents</span>
+          <span className="text-sm font-semibold tracking-tight">Countersign</span>
         </div>
         <div className="px-3 pb-2">
           <Button variant="outline" size="sm" className="w-full justify-start bg-background" onClick={() => setCreating(true)}>
@@ -156,6 +156,7 @@ export function App() {
               <div className="flex min-w-0 flex-1 items-baseline gap-2">
                 <h1 className="truncate text-sm font-semibold">{agent.name}</h1>
                 <span className="text-xs text-muted-foreground tabular-nums">v{agent.version}</span>
+                <span className="text-xs text-muted-foreground">· acts for {cap(agent.ownerId)}</span>
                 <Rules agentId={agent._id} />
               </div>
               {running && (
@@ -163,15 +164,6 @@ export function App() {
                   <SquareIcon className="size-3 fill-current" /> Stop
                 </Button>
               )}
-              <Tabs
-                value={conv?.provider ?? 'claude-code'}
-                onValueChange={(p) => { if (conv && p !== conv.provider) api.switchProvider(conv._id, p as Provider).catch(fail); }}
-              >
-                <TabsList className="h-8">
-                  <TabsTrigger value="claude-code" className="px-2.5 text-xs" disabled={!conv}>Claude Code</TabsTrigger>
-                  <TabsTrigger value="codex" className="px-2.5 text-xs" disabled={!conv}>Codex</TabsTrigger>
-                </TabsList>
-              </Tabs>
               <div className="mx-1 h-5 w-px bg-border" />
               <Apps agentId={agent._id} connections={Object.values(live.connections)} fail={fail} />
               <Tooltip>
@@ -203,7 +195,11 @@ export function App() {
             {!live.online && (
               <p className="mx-auto flex w-full max-w-2xl items-center gap-2 px-6 pt-2 text-xs text-amber-700"><WifiOffIcon className="size-3.5" /> Reconnecting…</p>
             )}
-            <Chat live={live} conversationId={conversationId} agentId={agent._id} running={running} onStop={stop} fail={fail} />
+            <Chat
+              live={live} conversationId={conversationId} agentId={agent._id} running={running} onStop={stop} fail={fail}
+              provider={conv?.provider ?? agent.defaultProvider}
+              onSwitch={(p) => { if (conv && p !== conv.provider) api.switchProvider(conv._id, p).catch(fail); }}
+            />
           </>
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
@@ -216,7 +212,7 @@ export function App() {
 
       {/* Ledger */}
       <aside className="flex min-h-0 flex-col border-l">
-        <Ledger entries={Object.values(live.ledger)} fail={fail} />
+        <Ledger entries={Object.values(live.ledger)} connections={Object.values(live.connections)} fail={fail} />
       </aside>
 
       <NewAgent open={creating} onOpenChange={setCreating} onCreate={createAgent} />
@@ -237,7 +233,7 @@ function Apps({ agentId, connections, fail }: { agentId: string; connections: Co
               {label}
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => api.disconnect(c._id).catch(fail)} aria-label={`Disconnect ${label}`}>
+                  <button className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => { if (window.confirm(`Disconnect ${label}? The agent loses access at once, and connecting again needs a new authorization.`)) api.disconnect(c._id).catch(fail); }} aria-label={`Disconnect ${label}`}>
                     <XIcon className="size-3" />
                   </button>
                 </TooltipTrigger>
@@ -316,6 +312,7 @@ function Conversations({ agentId, current, refreshKey, onPick, onNew }: {
 const EFFECT_TONE: Record<Rule['effect'], string> = { allow: 'text-emerald-700', ask: 'text-amber-700', deny: 'text-red-700' };
 
 function matchWords(r: Rule): string {
+  if (r.title) return r.title;
   const m = r.match;
   if (m.action) return m.action;
   const what = m.kind === 'read' ? 'reads' : m.kind === 'write' ? 'changes' : 'actions';

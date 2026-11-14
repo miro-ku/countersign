@@ -215,7 +215,7 @@ export async function handleCall(info: TokenInfo, tool: string, input: unknown, 
     }),
   );
   const ledgerOf = (c: (typeof checked)[number]) => ({
-    ...base, action: c.action.name, kind: c.action.kind, args: c.action.args, fingerprint: c.fp,
+    ...base, action: c.action.name, summary: c.action.summary, kind: c.action.kind, args: c.action.args, fingerprint: c.fp,
     ruleId: c.verdict.ruleId ?? null, connectionId: c.action.connectionId ?? null,
   });
 
@@ -344,7 +344,7 @@ export async function answerAsk(askId: string, a: Answer): Promise<{ ok: true; a
   const action = { name: done.action, kind: isNotesTool(done.action) ? notesSource.actionsOf(done.action, done.args)![0].kind : kindOf(done.action) };
   await appendLedger({
     agentId: done.agentId, agentVersion: agent?.version ?? 1, conversationId: done.conversationId,
-    executionId: done.executionId, provider: done.askedByProvider, action: action.name,
+    executionId: done.executionId, provider: done.askedByProvider, action: action.name, summary: done.summary,
     kind: action.kind,
     args: done.args, fingerprint: done.fingerprint, outcome: approved ? 'approved' : 'declined',
     connectionId: done.connectionId ?? null,
