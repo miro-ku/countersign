@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { col } from './db.js';
 
-const scratch = mkdtempSync(join(tmpdir(), 'countersign-assist-'));
+const scratch = mkdtempSync(join(tmpdir(), 'proviso-assist-'));
 
 /** One answer from the small model, or null when it could not be had in time. */
 function ask(system: string, prompt: string, timeoutMs = 30_000): Promise<string | null> {

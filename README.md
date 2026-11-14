@@ -1,4 +1,4 @@
-# Countersign
+# Proviso
 
 Custom agents whose rules hold whatever runs them.
 

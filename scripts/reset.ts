@@ -217,7 +217,7 @@ async function main() {
     const db = client.db(dbName);
     if (db.databaseName !== dbName) fail(`Connected to ${db.databaseName}, not ${dbName}: refusing.`);
     const existing = new Set((await db.listCollections({}, { nameOnly: true }).toArray()).map((c) => c.name));
-    if (!existing.has('agents')) fail(`${dbName} has no agents collection: not a Countersign database, refusing.`);
+    if (!existing.has('agents')) fail(`${dbName} has no agents collection: not a Proviso database, refusing.`);
 
     for (const id of keep) {
       const agent = await db.collection('agents').findOne({ _id: id as any });

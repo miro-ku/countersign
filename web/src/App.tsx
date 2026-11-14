@@ -102,7 +102,7 @@ export function App() {
           <div className="flex size-6 items-center justify-center rounded-md bg-foreground text-background">
             <ShieldCheckIcon className="size-3.5" />
           </div>
-          <span className="text-sm font-semibold tracking-tight">Countersign</span>
+          <span className="text-sm font-semibold tracking-tight">Proviso</span>
         </div>
         <div className="px-3 pb-2">
           <Button variant="outline" size="sm" className="w-full justify-start bg-background" onClick={() => setCreating(true)}>

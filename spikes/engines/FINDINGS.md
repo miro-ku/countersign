@@ -53,7 +53,7 @@ Goose is a third, with the caveat that its lock is one env var (`GOOSE_MODE=appr
 
 ## What can be said on stage
 
-"Countersign runs the same governed agent on Claude Code, Codex, GitHub Copilot
+"Proviso runs the same governed agent on Claude Code, Codex, GitHub Copilot
 and Kiro; on each one, the only tools the agent has are the ones that go
 through our gateway, and we checked that by asking each to run a shell
 command and write a file."
