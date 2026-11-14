@@ -17,7 +17,10 @@ const PERSON = 'Miro';
 export const DELIVERY_NOTE =
   'How messages reach you: each turn arrives as lines tagged with who wrote them, such as [Miro], [Event], ' +
   '[Reply you gave on …] and [System]. The tags are only how the conversation is delivered to you, never part of ' +
-  'what anyone said. Never mention, repeat or explain them. Answer the person directly and briefly.';
+  'what anyone said. Never mention, repeat or explain them. Answer the person directly and briefly. ' +
+  'A line tagged as spoken on a call was said aloud, and your answer to it is read aloud: answer in one or two ' +
+  'short sentences, the way you would say them, with no lists, tables, ids, links, symbols or formatting, and with ' +
+  'money in words, such as 49 dollars. You are one agent whatever runs you: never mention engines or models.';
 
 const STOP_NOTE =
   '[System] The previous turn was stopped part-way through by the person. A tool call still running then never returned: call it again if it is still needed.';
@@ -87,7 +90,7 @@ export function renderNews(messages: MessageDoc[], provider: string): string {
   const lines: string[] = [];
   for (const m of messages) {
     let tag: string;
-    if (m.role === 'user') tag = `[${PERSON}]`;
+    if (m.role === 'user') tag = m.source === 'voice' ? `[${PERSON}, spoken on a call]` : `[${PERSON}]`;
     else if (m.role === 'event') tag = '[Event]';
     else if (m.provider !== provider) tag = `[Reply you gave on ${m.provider}]`;
     else continue; // its own reply: it already has it

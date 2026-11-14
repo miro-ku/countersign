@@ -207,7 +207,14 @@ function multiEntries(input: unknown): MultiEntry[] | null {
     // Meta-tools are never run from inside a multi-execute.
     if (slug.toUpperCase().startsWith('COMPOSIO_')) return null;
     const args = (t as any)?.arguments;
-    out.push({ tool_slug: slug, arguments: args && typeof args === 'object' ? args : {} });
+    const given: Record<string, unknown> = args && typeof args === 'object' ? { ...args } : {};
+    // The refund action rejects any reason or note, valid or not, so they are
+    // left out: what runs is what the ledger shows.
+    if (slug === 'STRIPE_CREATE_REFUND') {
+      delete given.reason;
+      delete given.metadata;
+    }
+    out.push({ tool_slug: slug, arguments: given });
   }
   return out;
 }
@@ -243,6 +250,8 @@ export function createSource(db: Db, composio: Composio): ComposioSource {
   // The connection id for each toolkit, per agent, as of the last tools() call.
   // actionsOf is synchronous, so it reads this; run() re-checks the database.
   const known = new Map<string, Map<string, string>>();
+  // Stripe customers' names by id, per connection, learned from Stripe results.
+  const customers = new Map<string, Map<string, string>>();
   // Stripe charges by id, per connection, learned from Stripe results.
   const charges = new Map<string, Map<string, ChargeInfo>>();
   // Slack channel names by id, per connection, learned from Slack results.
@@ -274,6 +283,10 @@ export function createSource(db: Db, composio: Composio): ComposioSource {
       visited.add(v);
       if (Array.isArray(v)) return v.forEach((x) => walk(x, depth + 1));
       const o = v as Record<string, unknown>;
+      if (typeof o.id === 'string' && /^cus_/.test(o.id) && typeof o.name === 'string' && o.name) {
+        if (!customers.has(connectionId)) customers.set(connectionId, new Map());
+        customers.get(connectionId)!.set(o.id, o.name);
+      }
       if (typeof o.id === 'string' && /^ch_/.test(o.id) && typeof o.amount === 'number') {
         if (!seen) charges.set(connectionId, (seen = new Map()));
         seen.set(o.id, {
@@ -340,6 +353,10 @@ export function createSource(db: Db, composio: Composio): ComposioSource {
       if (value === null || value === undefined || value === '') continue;
       out[key] = typeof value === 'string' ? value.trim() : value;
     }
+    if (slug === 'STRIPE_CREATE_CUSTOMER_BALANCE_TRANSACTION') {
+      // The same credit whatever note was written on it.
+      return { customer: args.customer ?? null, amount: args.amount ?? null };
+    }
     if (toolkitOf(slug) === 'stripe' && /REFUND/.test(slug) && /CREATE/.test(slug)) {
       // A refund is the same refund whatever reason or note was attached:
       // what counts is which charge, and how much.
@@ -356,6 +373,17 @@ export function createSource(db: Db, composio: Composio): ComposioSource {
       }
     }
     return out;
+  }
+
+  const CREDIT = 'STRIPE_CREATE_CUSTOMER_BALANCE_TRANSACTION';
+
+  /** A change to a customer's balance in words: a negative amount is a credit to them. */
+  function creditWords(slug: string, args: Record<string, unknown>, agentId?: string): string | null {
+    if (slug !== CREDIT || typeof args.amount !== 'number') return null;
+    const connectionId = connectionFor('STRIPE_', agentId);
+    const who = (connectionId && customers.get(connectionId)?.get(str(args.customer))) || str(args.customer) || 'a customer';
+    const sum = money(Math.abs(args.amount), args.currency);
+    return clip(args.amount < 0 ? `add a ${sum} goodwill credit for ${who}` : `add ${sum} to what ${who} owes`);
   }
 
   /** A refund in the words a person approves: how much, for what. */
@@ -472,7 +500,7 @@ export function createSource(db: Db, composio: Composio): ComposioSource {
             kind: kindOf(e.tool_slug),
             args: e.arguments,
             identity: identityOf(e.tool_slug, e.arguments, ctx?.agentId),
-            summary: refundWords(e.tool_slug, e.arguments, ctx?.agentId) ?? summarize(e.tool_slug, e.arguments, namesFor(ctx?.agentId)),
+            summary: refundWords(e.tool_slug, e.arguments, ctx?.agentId) ?? creditWords(e.tool_slug, e.arguments, ctx?.agentId) ?? summarize(e.tool_slug, e.arguments, namesFor(ctx?.agentId)),
           };
           const connectionId = connectionFor(e.tool_slug, ctx?.agentId);
           if (connectionId) action.connectionId = connectionId;

@@ -1,6 +1,6 @@
 // Says one thing to an agent and prints what happened: every ledger entry,
 // every approval request, and the reply.
-//   pnpm exec tsx scripts/say.ts <agentId> "<message>" [--in <conversationId>] [--approve | --decline] [--on codex|claude-code]
+//   pnpm exec tsx scripts/say.ts <agentId> "<message>" [--in <conversationId>] [--approve | --decline | --answers approve,decline] [--on codex|claude-code]
 // Without --approve or --decline an approval request is left open and the script ends.
 
 const API = process.env.API_URL ?? 'http://localhost:4100';
@@ -10,7 +10,10 @@ if (!agentId || !text) {
   process.exit(2);
 }
 const flag = (name: string) => (flags.includes(name) ? (flags[flags.indexOf(name) + 1] ?? '') : null);
-const answer = flags.includes('--approve') ? 'approve' : flags.includes('--decline') ? 'decline' : null;
+// --answers approve,decline,approve answers the requests in the order they come.
+const sequence = (flag('--answers') ?? '').split(',').filter(Boolean);
+const fixed = flags.includes('--approve') ? 'approve' : flags.includes('--decline') ? 'decline' : null;
+let asked = 0;
 
 async function call(method: string, path: string, body?: unknown): Promise<any> {
   const response = await fetch(API + path, {
@@ -59,8 +62,10 @@ for (;;) {
       const a = event.ask ?? event;
       if (a.status !== 'open') continue;
       console.log(`${secs()}  ASK      ${a.summary}`);
+      const answer = sequence[asked++] ?? sequence[sequence.length - 1] ?? fixed;
       if (!answer) { console.log('left open'); process.exit(0); }
-      await call('POST', `/api/asks/${a._id}/answer`, { answer, scope: answer === 'decline' ? 'conversation' : 'once', source: 'button' });
+      await call('POST', `/api/asks/${a._id}/answer`, { answer, scope: 'conversation', source: 'button' });
+      console.log(`${secs()}  answered ${answer}`);
     } else if (event.type === 'message') {
       const m = event.message ?? event;
       if (m.role === 'agent' && !m.generating && m.text) reply = m.text;

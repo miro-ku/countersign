@@ -1,5 +1,5 @@
 // Puts the demo's customers and payments into a Stripe sandbox.
-//   pnpm exec tsx scripts/seedStripe.ts
+//   pnpm exec tsx scripts/seedStripe.ts [--fresh]
 // It only ever runs with a test-mode key, and skips what is already there.
 import 'dotenv/config';
 
@@ -33,8 +33,27 @@ const CUSTOMERS: Array<{ name: string; email: string; payments: Payment[] }> = [
       { amount: 50000, description: 'Annual plan' },
     ],
   },
-  { name: 'Globex', email: 'accounts@globex.example', payments: [{ amount: 2900, description: 'Starter plan, October' }] },
+  {
+    name: 'Globex',
+    email: 'accounts@globex.example',
+    payments: [
+      // A duplicate too large for an agent to refund: the rule stops it.
+      { amount: 50000, description: 'Annual plan' },
+      { amount: 50000, description: 'Annual plan' },
+    ],
+  },
 ];
+
+// --fresh starts over: the demo spends a refund each time it runs.
+if (process.argv.includes('--fresh')) {
+  for (const wanted of CUSTOMERS) {
+    const old = await stripe('GET', '/customers', { email: wanted.email, limit: '10' });
+    for (const customer of old.data) {
+      await fetch(`https://api.stripe.com/v1/customers/${customer.id}`, { method: 'DELETE', headers: { authorization: `Bearer ${key}` } });
+      console.log(`removed ${wanted.name} (${customer.id})`);
+    }
+  }
+}
 
 for (const wanted of CUSTOMERS) {
   const found = await stripe('GET', '/customers', { email: wanted.email, limit: '1' });

@@ -28,6 +28,20 @@ interface Utterance {
   done?: () => void;
 }
 
+/** An approval request as it is said: no ids, money in words, a channel by its name. */
+export function aloud(summary: string): string {
+  return summary
+    .replace(/,?\s*(charge|payment|customer|refund)\s+(ch|pi|cus|re)_[A-Za-z0-9]+/g, '')
+    .replace(/\b(ch|pi|cus|re)_[A-Za-z0-9]+\b/g, '')
+    .replace(/(\d+)\.00 USD/g, '$1 dollars')
+    .replace(/(\d+)\.(\d\d) USD/g, '$1 dollars $2')
+    .replace(/\ba (\d+) dollars /g, 'a $1 dollar ')
+    .replace(/#([a-z0-9_-]+)/gi, 'the $1 channel')
+    .replace(/[*_`]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 interface OpenAsk { id: string; summary: string; tries: number }
 
 export class Call {
@@ -43,6 +57,7 @@ export class Call {
   /** Per agent message: how much of its text has been queued, and whether it was cut off. */
   private replies = new Map<string, { used: number; hushed: boolean; finished: boolean }>();
   private asks: OpenAsk[] = [];
+  private waiting: ReturnType<typeof setTimeout> | null = null;
   private handledAsks = new Set<string>();
   private judging = false;
   private joinedAt = Date.now();
@@ -136,7 +151,8 @@ export class Call {
   // ── approvals ──────────────────────────────────────────────────
 
   private askAloud(ask: OpenAsk) {
-    this.say(`I need your approval to ${ask.summary}. Do you approve?`);
+    this.quiet();
+    this.say(`I need your approval to ${aloud(ask.summary)}. Do you approve?`);
   }
 
   private async judgeAnswer(ask: OpenAsk, transcript: string) {
@@ -152,7 +168,7 @@ export class Call {
     if (verdict === 'unclear') {
       ask.tries++;
       if (ask.tries < 2) {
-        this.say(`I did not catch a clear yes or no. Do you approve: ${ask.summary}?`);
+        this.say(`I did not catch a clear yes or no. Should I ${aloud(ask.summary)}?`);
       } else {
         this.asks.shift();
         this.say('I still did not catch a clear yes or no, so I will leave it open. You can answer with the button on the page.');
@@ -181,6 +197,23 @@ export class Call {
   private onEvent(e: any) {
     if (e?.type === 'message') this.onMessage(e.message);
     else if (e?.type === 'ask') this.onAsk(e.ask);
+    else if (e?.type === 'execution') this.onTurn(e.execution);
+  }
+
+  /** A turn that works in silence gets one short line, so the person knows it heard them. */
+  private onTurn(x: any) {
+    if (!x) return;
+    if (x.status !== 'running') return this.quiet();
+    if (this.waiting || this.playing || this.asks.length) return;
+    this.waiting = setTimeout(() => {
+      this.waiting = null;
+      if (!this.playing && !this.asks.length && !this.closed) this.say('One moment, I am on it.');
+    }, 3500);
+  }
+
+  private quiet() {
+    if (this.waiting) clearTimeout(this.waiting);
+    this.waiting = null;
   }
 
   private onMessage(m: any) {
@@ -195,6 +228,7 @@ export class Call {
       this.replies.set(id, r);
     }
     if (r.hushed || r.finished) return;
+    if (m.text || (m.steps ?? []).some((st: any) => st.text)) this.quiet();
     const text: string =
       typeof m.text === 'string' && m.text
         ? m.text
