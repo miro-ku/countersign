@@ -79,8 +79,8 @@ export function Chat({ live, conversationId, agentId, running, onStop, fail, pro
       </Conversation>
 
       <div className="mx-auto w-full max-w-2xl px-6 pb-5">
-        {call.inCall && <CallBar call={call} />}
-        <div className="flex items-end gap-2">
+        {call.inCall && <CallBar call={call} provider={provider} onSwitch={onSwitch} />}
+        <div className={cn('flex items-end gap-2', call.inCall && 'hidden')}>
           <PromptInput
             className="flex-1"
             onSubmit={({ text }) => {
@@ -170,38 +170,44 @@ const CALL_WORDS: Record<CallState['phase'], { label: string; hint: string; dot:
   failed: { label: 'The call could not start', hint: 'Leave and try again.', dot: 'bg-red-500' },
 };
 
-/** The call, above the message box: what it is doing, what it heard, the microphone, and a way out. */
-function CallBar({ call }: { call: Call }) {
+/** The call takes the place of the message box: what it is doing, what it heard, the engine, the microphone, and a way out. */
+function CallBar({ call, provider, onSwitch }: { call: Call; provider: Provider; onSwitch: (provider: Provider) => void }) {
   const { phase, micOn, note } = call.state;
   const words = CALL_WORDS[phase];
   return (
-    <div className="mb-2 flex items-center gap-3 rounded-xl border bg-background px-3 py-2 shadow-xs">
-      <span className={cn('size-2 shrink-0 rounded-full', words.dot, (phase === 'listening' || phase === 'working' || phase === 'judging') && 'animate-pulse')} />
-      <div className="min-w-0 flex-1">
-        <div className="text-sm font-medium leading-tight">{words.label}</div>
-        <div className="truncate text-xs text-muted-foreground" title={note || words.hint}>
-          {phase === 'listening' || !note ? words.hint : note}
+    <div className="rounded-xl border bg-background shadow-xs">
+      <div className="flex min-h-11 items-center gap-3 px-3 pt-3 pb-2">
+        <span className={cn('size-2 shrink-0 rounded-full', words.dot, (phase === 'listening' || phase === 'working' || phase === 'judging') && 'animate-pulse')} />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium leading-tight">{words.label}</div>
+          <div className="truncate text-xs text-muted-foreground" title={note || words.hint}>
+            {phase === 'listening' || !note ? words.hint : note}
+          </div>
         </div>
+        {micOn && (
+          <span className="h-1 w-12 shrink-0 overflow-hidden rounded-full bg-muted" aria-hidden>
+            <span ref={call.meter} className="block h-full origin-left rounded-full bg-emerald-500 transition-transform duration-75" style={{ transform: 'scaleX(0.04)' }} />
+          </span>
+        )}
       </div>
-      {micOn && (
-        <span className="h-1 w-12 shrink-0 overflow-hidden rounded-full bg-muted" aria-hidden>
-          <span ref={call.meter} className="block h-full origin-left rounded-full bg-emerald-500 transition-transform duration-75" style={{ transform: 'scaleX(0.04)' }} />
-        </span>
-      )}
-      <Button
-        variant={micOn ? 'default' : 'outline'}
-        size="sm"
-        disabled={phase === 'connecting' || phase === 'failed'}
-        onClick={() => call.setMic(!micOn)}
-        aria-pressed={micOn}
-        title={micOn ? 'Turn the microphone off to send' : 'Turn the microphone on to speak'}
-      >
-        {micOn ? <MicIcon /> : <MicOffIcon />}
-        {micOn ? 'Mic on' : 'Mic off'}
-      </Button>
-      <Button variant="ghost" size="sm" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={call.leave}>
-        Leave
-      </Button>
+      <div className="flex items-center gap-2 px-3 pb-3">
+        <EngineSwitch provider={provider} onSwitch={onSwitch} />
+        <div className="flex-1" />
+        <Button
+          variant={micOn ? 'default' : 'outline'}
+          size="sm"
+          disabled={phase === 'connecting' || phase === 'failed'}
+          onClick={() => call.setMic(!micOn)}
+          aria-pressed={micOn}
+          title={micOn ? 'Turn the microphone off to send' : 'Turn the microphone on to speak'}
+        >
+          {micOn ? <MicIcon /> : <MicOffIcon />}
+          {micOn ? 'Mic on' : 'Mic off'}
+        </Button>
+        <Button variant="ghost" size="sm" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={call.leave}>
+          Leave call
+        </Button>
+      </div>
     </div>
   );
 }
