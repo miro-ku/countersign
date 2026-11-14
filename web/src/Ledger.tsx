@@ -103,6 +103,9 @@ export function Ledger({ entries, connections, fail }: {
           {entries.length ? `${actions} ${actions === 1 ? 'action' : 'actions'} · ${entries.length} entries` : ''}
         </span>
       </div>
+      <p className="-mt-2 shrink-0 px-5 pb-2 text-[11px] leading-snug text-muted-foreground">
+        Stored in MongoDB Atlas. The system can add entries and cannot change them.
+      </p>
       <ScrollArea className="min-h-0 flex-1">
         {entries.length === 0 && (
           <p className="px-5 py-2 text-sm leading-relaxed text-muted-foreground">
