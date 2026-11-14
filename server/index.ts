@@ -1,4 +1,5 @@
 import { serve } from '@hono/node-server';
+import { warmJudge } from './assist.js';
 import { Hono } from 'hono';
 import { client, col, db } from './db.js';
 import { startChangeStreams, stopChangeStreams } from './changes.js';
@@ -42,6 +43,8 @@ registerGateway(app);
 
 const server = serve({ fetch: app.fetch, port: PORT, hostname: '0.0.0.0' }, () => {
   console.log(`server on http://localhost:${PORT}`);
+  // The judge is started ahead of time when some agent has a rule it reads.
+  void col.rules.findOne({ judged: true } as any).then((rule) => { if (rule) warmJudge(); }).catch(() => {});
   if (!process.env.COMPOSIO_API_KEY) console.log('COMPOSIO_API_KEY is not set: app connections are off.');
 });
 

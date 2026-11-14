@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { compileRule, drawAvatar, nameConversation, transcribe } from './assist.js';
+import { compileRule, drawAvatar, nameConversation, transcribe, warmJudge } from './assist.js';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { col, db, newId, OWNER_ID } from './db.js';
@@ -162,6 +162,7 @@ export function createApi(): Hono {
       };
       checkRule(rule);
       await col.rules.insertOne(rule);
+      if (compiled.judged) warmJudge();
       return c.json(rule, 201);
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : 'The rule could not be saved.' }, 400);
