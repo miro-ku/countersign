@@ -61,7 +61,12 @@ export function Chat({ live, conversationId, agentId, running, onStop, fail, pro
     <>
       <Conversation key={conversationId} className="min-h-0">
         <ConversationContent className="mx-auto w-full max-w-2xl gap-6 px-6 py-8">
-          {items.length === 0 ? (
+          {!live.loaded ? (
+            <div className="flex min-h-[50vh] flex-col items-center justify-center gap-2 text-sm text-muted-foreground" role="status">
+              <LoaderIcon className="size-5 animate-spin" />
+              Loading the conversation…
+            </div>
+          ) : items.length === 0 ? (
             <ConversationEmptyState
               className="min-h-[50vh]"
               icon={<BotIcon className="size-6" />}

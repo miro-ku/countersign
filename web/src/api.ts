@@ -88,10 +88,12 @@ export interface Live {
   executions: ById<Execution>;
   connections: ById<Connection>;
   online: boolean;
+  /** The conversation's messages have been read at least once. */
+  loaded: boolean;
 }
 
 const empty: Live = {
-  conversation: null, messages: {}, asks: {}, ledger: {}, executions: {}, connections: {}, online: false,
+  conversation: null, messages: {}, asks: {}, ledger: {}, executions: {}, connections: {}, online: false, loaded: false,
 };
 
 const byId = <T extends { _id: string }>(list: T[] | undefined): ById<T> =>
@@ -123,6 +125,7 @@ export function useConversation(conversationId: string | null, agentId: string |
         ledger: { ...prev.ledger, ...byId(snap.ledger ?? snap.ledgerEntries ?? snap.entries) },
         executions: { ...prev.executions, ...byId(snap.executions) },
         connections: byId(conns),
+        loaded: true,
       }));
     };
 
