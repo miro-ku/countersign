@@ -154,6 +154,12 @@ export function App() {
                 <span className="text-xs text-muted-foreground tabular-nums">v{agent.version}</span>
                 <span className="text-xs text-muted-foreground">· acts for {cap(agent.ownerId)}</span>
                 <Rules agentId={agent._id} />
+                {/* In the header, which keeps its height: nothing below it moves. Not shown while a chat is first loading. */}
+                {live.loaded && !live.online && (
+                  <span className="flex shrink-0 items-center gap-1 self-center text-xs text-amber-700" role="status">
+                    <WifiOffIcon className="size-3.5" /> Reconnecting…
+                  </span>
+                )}
               </div>
               {running && (
                 <Button variant="ghost" size="sm" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={stop}>
@@ -188,9 +194,6 @@ export function App() {
 
         {agent && conversationId ? (
           <>
-            {!live.online && (
-              <p className="mx-auto flex w-full max-w-2xl items-center gap-2 px-6 pt-2 text-xs text-amber-700"><WifiOffIcon className="size-3.5" /> Reconnecting…</p>
-            )}
             <Chat
               live={live} conversationId={conversationId} agentId={agent._id} running={running} onStop={stop} fail={fail}
               provider={conv?.provider ?? agent.defaultProvider}
