@@ -135,6 +135,12 @@ async function main() {
       match: { actionPattern: '^[A-Z]+_(ARCHIVE|DELETE)_(A_)?(PUBLIC_OR_PRIVATE_)?(CHANNEL|CONVERSATION)' },
       effect: 'deny' as const, title: 'Deleting or archiving a channel', reason: 'Channels are never deleted or archived by an agent.',
     },
+    {
+      _id: 'no-large-refunds', agentId: null,
+      // An amount of 10000 or more in the smallest unit: 100.00 and above.
+      match: { actionPattern: 'REFUND', argsPattern: '"amount":\\s*"?[1-9][0-9]{4,}' },
+      effect: 'deny' as const, title: 'A refund of 100.00 or more', reason: 'Refunds of 100.00 or more are never made by an agent.',
+    },
   ];
   for (const rule of defaults) checkRule(rule);
   for (const rule of defaults) {

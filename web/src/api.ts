@@ -55,6 +55,7 @@ export const api = {
     const all = await call<Rule[]>('GET', '/api/rules');
     return all.filter((r) => r.agentId === agentId || r.agentId == null);
   },
+  toolkits: () => call<{ id: string; name: string; auth: 'oauth' | 'api_key'; logo: string }[]>('GET', '/api/toolkits'),
   createConversation: async (agentId: string) =>
     unwrap<Conversation>(await call('POST', '/api/conversations', { agentId }), 'conversation'),
   getConversation: (id: string) => call<any>('GET', `/api/conversations/${id}`),

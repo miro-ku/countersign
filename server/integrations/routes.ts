@@ -7,6 +7,8 @@ import {
   composioUserId,
   connectionsOf,
   ensureAuthConfig,
+  CATALOG,
+  logoOf,
   TOOLKITS,
   type ConnectionRecord,
 } from './composio.js';
@@ -116,6 +118,9 @@ export function registerConnectionRoutes(api: Hono, db: Db): void {
   });
 
   // The same as a link a person can open: starts the connection and goes straight to Composio.
+  // The apps a person can connect, with their logos.
+  api.get('/toolkits', (c) => c.json(CATALOG.map((t) => ({ id: t.id, name: t.name, auth: t.auth, logo: logoOf(t.id) }))));
+
   api.get('/agents/:id/connect/:toolkit', async (c) => {
     const r = await start(c.req.param('id'), c.req.param('toolkit'));
     return 'error' in r ? c.json({ error: r.error }, r.status) : c.redirect(r.redirectUrl, 302);

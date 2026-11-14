@@ -24,10 +24,10 @@ const time = (s?: string) => (s ? new Date(s).getTime() : 0);
 const toolName = (n: string) => n.replace(/^mcp__gateway__/, '');
 const VOICE_WIDGET: string = 'http://localhost:4200/widget.js';
 
-const PROVIDER_DOT: Record<Provider, string> = {
-  'claude-code': 'bg-orange-500',
-  codex: 'bg-zinc-900',
-};
+/** Each engine's own mark, so it is clear at a glance who is answering. */
+function EngineIcon({ provider, className }: { provider: Provider; className?: string }) {
+  return <img src={`/engines/${provider}.svg`} alt="" className={cn('size-3.5 shrink-0', className)} />;
+}
 
 /** Messages in `seq` order; each ask sits after the last message written before it. */
 function timeline(live: Live): Item[] {
@@ -178,7 +178,7 @@ function EngineSwitch({ provider, onSwitch }: { provider: Provider; onSwitch: (p
             p === provider ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
           )}
         >
-          <span className={cn('size-1.5 rounded-full', PROVIDER_DOT[p])} />
+          <EngineIcon provider={p} className={p === provider ? '' : 'opacity-60'} />
           {PROVIDER_LABEL[p]}
         </button>
       ))}
@@ -190,7 +190,7 @@ function ProviderBadge({ provider }: { provider?: Provider }) {
   if (!provider) return null;
   return (
     <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-      <span className={cn('size-1.5 rounded-full', PROVIDER_DOT[provider])} />
+      <EngineIcon provider={provider} />
       {PROVIDER_LABEL[provider] ?? provider}
     </span>
   );

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ListChecksIcon, MailIcon, MessageSquareIcon, PlusIcon, ShieldCheckIcon, SquarePenIcon, SquareIcon, WifiOffIcon, XIcon } from 'lucide-react';
+import { ListChecksIcon, PlusIcon, ShieldCheckIcon, SquarePenIcon, SquareIcon, WifiOffIcon, XIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -17,10 +17,6 @@ import { Chat } from './Chat.tsx';
 import { Ledger } from './Ledger.tsx';
 import { PROVIDER_LABEL, type Agent, type Connection, type Provider, type Rule } from './types.ts';
 
-const TOOLKITS = [
-  { id: 'slack', label: 'Slack', icon: MessageSquareIcon },
-  { id: 'gmail', label: 'Gmail', icon: MailIcon },
-];
 
 // Where we are lives in the URL (and localStorage), so the app-connection
 // round trip lands back on the same agent and conversation.
@@ -220,46 +216,67 @@ export function App() {
   );
 }
 
+interface Toolkit { id: string; name: string; auth: 'oauth' | 'api_key'; logo: string }
+
+/** The apps this agent has been given, as their logos, and a way to give it more. */
 function Apps({ agentId, connections, fail }: { agentId: string; connections: Connection[]; fail: (e: unknown) => void }) {
+  const [catalog, setCatalog] = useState<Toolkit[]>([]);
+  const [open, setOpen] = useState(false);
+  useEffect(() => { api.toolkits().then(setCatalog).catch(() => {}); }, []);
+  // Only a working connection counts; pending or stale ones are offered again.
+  const active = connections.filter((c) => c.status === 'active' && !c.stale);
+  const connected = catalog.filter((t) => active.some((c) => c.toolkit?.toLowerCase() === t.id));
+  const offered = catalog.filter((t) => !connected.includes(t));
+  const connect = async (id: string) => {
+    try { location.href = (await api.connect(agentId, id)).redirectUrl; } catch (e) { fail(e); }
+  };
+
   return (
     <div className="flex items-center gap-1">
-      {TOOLKITS.map(({ id, label, icon: Icon }) => {
-        // Only a working connection counts; pending or stale ones are offered again.
-        const c = connections.find((x) => x.toolkit?.toLowerCase() === id && x.status === 'active' && !x.stale);
-        if (c) {
-          return (
-            <span key={id} className="group/chip flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium">
-              <span className="size-1.5 rounded-full bg-emerald-500" />
-              {label}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => { if (window.confirm(`Disconnect ${label}? The agent loses access at once, and connecting again needs a new authorization.`)) api.disconnect(c._id).catch(fail); }} aria-label={`Disconnect ${label}`}>
-                    <XIcon className="size-3" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>Disconnect {label}</TooltipContent>
-              </Tooltip>
-            </span>
-          );
-        }
+      {connected.map((t) => {
+        const c = active.find((x) => x.toolkit?.toLowerCase() === t.id)!;
         return (
-          <Tooltip key={id}>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-xs text-muted-foreground"
-                onClick={async () => {
-                  try { location.href = (await api.connect(agentId, id)).redirectUrl; } catch (e) { fail(e); }
-                }}
-              >
-                <Icon /> Connect {label}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Give this agent access to your {label}</TooltipContent>
-          </Tooltip>
+          <span key={t.id} className="flex h-8 items-center gap-1.5 rounded-md border bg-background pl-1.5 pr-1 text-xs font-medium">
+            <img src={t.logo} alt="" className="size-4 rounded-sm" />
+            {t.name}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  onClick={() => { if (window.confirm(`Disconnect ${t.name}? The agent loses access at once, and connecting again needs a new authorization.`)) api.disconnect(c._id).catch(fail); }}
+                  aria-label={`Disconnect ${t.name}`}
+                >
+                  <XIcon className="size-3" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Disconnect {t.name}</TooltipContent>
+            </Tooltip>
+          </span>
         );
       })}
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button variant="ghost" size="sm" className="text-xs text-muted-foreground">
+            <PlusIcon /> Connect app
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-64 p-1">
+          <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Give this agent access to one of your apps</div>
+          {offered.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => connect(t.id)}
+              aria-label={`Connect ${t.name}`}
+              className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
+            >
+              <img src={t.logo} alt="" className="size-5 rounded-sm" />
+              <span className="flex-1">{t.name}</span>
+              {t.auth === 'api_key' && <span className="text-[10px] uppercase tracking-wide text-muted-foreground">API key</span>}
+            </button>
+          ))}
+          {offered.length === 0 && <div className="px-2 py-1.5 text-xs text-muted-foreground">Every app is connected.</div>}
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }
@@ -419,8 +436,8 @@ function NewAgent({ open, onOpenChange, onCreate }: {
             <Label>Runs on</Label>
             <Tabs value={provider} onValueChange={(v) => setProvider(v as Provider)}>
               <TabsList className="w-full">
-                <TabsTrigger value="claude-code" className="flex-1">Claude Code</TabsTrigger>
-                <TabsTrigger value="codex" className="flex-1">Codex</TabsTrigger>
+                <TabsTrigger value="claude-code" className="flex-1 gap-1.5"><img src="/engines/claude-code.svg" alt="" className="size-3.5" />Claude Code</TabsTrigger>
+                <TabsTrigger value="codex" className="flex-1 gap-1.5"><img src="/engines/codex.svg" alt="" className="size-3.5" />Codex</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>

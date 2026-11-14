@@ -17,8 +17,22 @@ export const MULTI = 'COMPOSIO_MULTI_EXECUTE_TOOL';
 export const LISTED = new Set([SEARCH, SCHEMAS, MULTI]);
 
 /** Toolkits a person may connect today. */
-export const TOOLKITS = ['slack', 'gmail'] as const;
-export type Toolkit = (typeof TOOLKITS)[number];
+/** The apps a person can connect to an agent. `auth` says how the app is authorized. */
+export const CATALOG = [
+  { id: 'slack', name: 'Slack', auth: 'oauth' },
+  { id: 'gmail', name: 'Gmail', auth: 'oauth' },
+  // Stripe is connected with an API key, so a test-mode key keeps it away from real money.
+  { id: 'stripe', name: 'Stripe', auth: 'api_key' },
+  { id: 'github', name: 'GitHub', auth: 'oauth' },
+  { id: 'notion', name: 'Notion', auth: 'oauth' },
+  { id: 'googlecalendar', name: 'Google Calendar', auth: 'oauth' },
+  { id: 'linear', name: 'Linear', auth: 'oauth' },
+  { id: 'hubspot', name: 'HubSpot', auth: 'oauth' },
+] as const;
+export const TOOLKITS = CATALOG.map((t) => t.id);
+export type Toolkit = (typeof CATALOG)[number]['id'];
+export const logoOf = (toolkit: string) => `https://logos.composio.dev/api/${toolkit}`;
+const nameOf = (toolkit: string) => CATALOG.find((t) => t.id === toolkit)?.name ?? toolkit;
 
 const SLACK_POST = 'SLACK_SEND_MESSAGE';
 const SLACK_DELETE = 'SLACK_DELETES_A_MESSAGE_FROM_A_CHAT';
@@ -74,6 +88,16 @@ export async function ensureAuthConfig(composio: Composio, toolkit: string): Pro
   const isNarrow = (a: any) => String(a.name ?? '').endsWith(NARROW_SUFFIX);
   const narrow = narrowWanted() ? usable.find((a: any) => a.isComposioManaged && isNarrow(a)) : undefined;
   const existing = narrow ?? usable.find((a: any) => a.isComposioManaged && !isNarrow(a)) ?? usable.find((a: any) => !isNarrow(a));
+  const byKey = CATALOG.find((t) => t.id === toolkit)?.auth === 'api_key';
+  if (byKey) {
+    // The person types the key on the authorization page; we never see or keep it.
+    const keyed = usable.find((a: any) => !a.isComposioManaged && String(a.authScheme ?? '').toUpperCase() === 'API_KEY');
+    const id = keyed
+      ? keyed.id
+      : (await composio.authConfigs.create(toolkit, { type: 'use_custom_auth', authScheme: 'API_KEY', credentials: {}, name: `${toolkit} (api key)` } as any)).id;
+    authConfigIds.set(toolkit, id);
+    return id;
+  }
   const id = existing
     ? existing.id
     : (await composio.authConfigs.create(toolkit, { type: 'use_composio_managed_auth', name: `${toolkit} (managed)` })).id;
@@ -121,6 +145,27 @@ function channelName(channel: unknown, names?: ChannelNames): string {
   return name ? `#${name}` : c;
 }
 
+/** Money as a person says it: Stripe counts in the smallest unit. */
+function money(amount: unknown, currency: unknown): string | null {
+  const n = typeof amount === 'number' ? amount : Number(amount);
+  if (!Number.isFinite(n)) return null;
+  return `${(n / 100).toFixed(2)} ${str(currency || 'usd').toUpperCase()}`;
+}
+
+/** Any app's action in words: "Stripe: create refund, 20.00 USD, charge ch_123". */
+function generic(slug: string, args: Record<string, unknown>): string {
+  const toolkit = toolkitOf(slug);
+  const verb = slug.split('_').slice(1).join(' ').toLowerCase() || slug.toLowerCase();
+  const facts: string[] = [];
+  if (args.amount !== undefined) facts.push(toolkit === 'stripe' ? (money(args.amount, args.currency) ?? `amount ${str(args.amount)}`) : `amount ${str(args.amount)}`);
+  for (const key of ['customer', 'email', 'charge', 'payment_intent', 'invoice', 'title', 'name', 'subject', 'to', 'query', 'repo', 'summary']) {
+    const value = args[key];
+    if (facts.length >= 4) break;
+    if (typeof value === 'string' && value) facts.push(`${key.replace(/_/g, ' ')} ${value}`);
+  }
+  return `${nameOf(toolkit)}: ${verb}${facts.length ? `, ${facts.join(', ')}` : ''}`;
+}
+
 /** Plain words a person can approve on a projector or hear on a call. */
 export function summarize(slug: string, args: Record<string, unknown>, names?: ChannelNames): string {
   switch (slug) {
@@ -143,7 +188,7 @@ export function summarize(slug: string, args: Record<string, unknown>, names?: C
     case 'SLACK_LIST_ALL_CHANNELS':
       return 'list the Slack channels';
     default:
-      return clip(`run ${slug} with ${JSON.stringify(args ?? {})}`);
+      return clip(generic(slug, args ?? {}));
   }
 }
 

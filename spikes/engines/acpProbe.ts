@@ -94,7 +94,7 @@ class Acp {
     if (m.method === 'session/request_permission') {
       const tc = m.params.toolCall ?? {};
       const blob = JSON.stringify(tc);
-      const ours = /notes_add/.test(blob);
+      const ours = /notes[_ ]add/.test(blob);
       const want = ours ? ['allow_once', 'allow_always'] : ['reject_once', 'reject_always'];
       const opt = m.params.options.find((o: any) => want.includes(o.kind)) ?? m.params.options.find((o: any) => o.kind?.startsWith(ours ? 'allow' : 'reject'));
       const d = `${ours ? 'ALLOW' : 'REJECT'} ${tc.kind ?? '?'} | ${tc.title ?? ''}`;
