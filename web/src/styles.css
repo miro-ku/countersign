@@ -104,6 +104,7 @@ pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: .78re
 .check input { width: 18px; height: 18px; }
 .ask-done { display: flex; gap: 8px; align-items: baseline; font-size: .9rem; color: var(--muted); padding: 2px 4px; }
 .ask-done .mark { font-weight: 700; }
+.ask-line { white-space: nowrap; flex-shrink: 0; }
 .ask-done.approved .mark, .ask-done.approved .ask-line { color: var(--good); font-weight: 700; }
 .ask-done.declined .mark, .ask-done.declined .ask-line { color: var(--bad); font-weight: 700; }
 .ask-what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

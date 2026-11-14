@@ -48,7 +48,7 @@ function Row({ e, canUndo, fail }: { e: LedgerRow; canUndo: boolean; fail: (e: u
       {open && (
         <dl className="row-detail">
           <dt>Arguments</dt><dd><pre>{pretty(e.args)}</pre></dd>
-          <dt>Rule</dt><dd>{e.ruleId ?? 'none (asked by default)'}</dd>
+          <dt>Rule</dt><dd>{e.ruleId ?? '—'}</dd>
           <dt>Agent version</dt><dd>v{e.agentVersion}</dd>
           <dt>Connection</dt><dd>{e.connectionId ?? '—'}</dd>
           {e.result !== undefined && (<><dt>Result</dt><dd><pre>{pretty(e.result)}</pre></dd></>)}

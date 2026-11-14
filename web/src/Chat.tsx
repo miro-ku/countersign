@@ -66,7 +66,10 @@ export function Chat({ live, conversationId, agentId, fail }: {
 }
 
 function MessageView({ m }: { m: Message }) {
-  if (m.role === 'event') return <div className="event"><span>{m.text}</span></div>;
+  if (m.role === 'event') {
+    const text = m.text.replace(/\bclaude-code\b/g, 'Claude Code').replace(/\bcodex\b/g, 'Codex');
+    return <div className="event"><span>{text}</span></div>;
+  }
   if (m.role === 'user') {
     return (
       <div className="msg user">

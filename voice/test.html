@@ -1,0 +1,17 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Voice test</title>
+<body style="font: 14px system-ui; padding: 24px">
+  <p>Conversation id (<code>echo</code> repeats what you say):
+    <input id="cid" value="echo" /> <button id="go">Mount</button></p>
+  <div id="voice-slot"></div>
+  <script type="module">
+    import { mountVoice } from './widget.js';
+    const cid = document.getElementById('cid');
+    const q = new URLSearchParams(location.search).get('c');
+    if (q) cid.value = q;
+    const mount = () => mountVoice(document.getElementById('voice-slot'), { conversationId: cid.value });
+    document.getElementById('go').onclick = mount;
+    mount();
+  </script>
+</body>

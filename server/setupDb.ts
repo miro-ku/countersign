@@ -35,7 +35,7 @@ const validators: Record<string, object> = {
   conversations: schema(
     ['_id', 'agentId', 'ownerId', 'provider', 'providerSessions', 'stoppedNote', 'createdAt'],
     {
-      _id: str, agentId: str, ownerId: str, provider: { enum: ['claude-code', 'codex'] },
+      _id: str, agentId: str, ownerId: str, provider: str,
       providerSessions: obj, stoppedNote: bool, createdAt: date,
     },
   ),

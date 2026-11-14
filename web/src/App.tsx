@@ -55,7 +55,10 @@ export function App() {
     setAgentId(a._id);
     const known = localStorage.getItem(`conversation:${a._id}`);
     if (known) { setConversationId(known); return; }
-    try { setConversationId((await api.createConversation(a._id))._id); } catch (e) { fail(e); }
+    try {
+      const latest = await api.latestConversation(a._id).catch(() => null);
+      setConversationId((latest ?? (await api.createConversation(a._id)))._id);
+    } catch (e) { fail(e); }
   };
 
   const newConversation = async () => {

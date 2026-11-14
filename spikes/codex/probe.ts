@@ -28,7 +28,6 @@ const OFF = process.env.NO_OFF ? [] : [
   'features.computer_use=false', 'features.in_app_browser=false', 'features.tool_suggest=false',
   'features.goals=false', 'features.skill_search=false', 'features.sleep_tool=false',
   'web_search="disabled"',
-  ...own.map((n) => `mcp_servers.${n}.enabled=false`),
 ];
 const args = [...OFF.flatMap((c) => ['-c', c]), 'app-server'];
 const child = spawn('codex', args, { cwd, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -87,7 +86,7 @@ const threadParams = {
   approvalsReviewer: 'user',
   developerInstructions: 'You are a notes assistant. Your only tools are those of the gateway MCP server.',
   config: {
-    mcp_servers: { gateway: { url: `http://127.0.0.1:${PORT}/mcp`, tool_timeout_sec: 300, startup_timeout_sec: 20, default_tools_approval_mode: process.env.MCP_APPROVAL ?? 'approve' } },
+    mcp_servers: { ...Object.fromEntries(own.map((n) => [n, { enabled: false }])), gateway: { url: `http://127.0.0.1:${PORT}/mcp`, tool_timeout_sec: 300, startup_timeout_sec: 20, default_tools_approval_mode: process.env.MCP_APPROVAL ?? 'approve' } },
   },
 };
 const started = process.env.RESUME

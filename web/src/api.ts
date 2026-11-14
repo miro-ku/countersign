@@ -41,6 +41,10 @@ export const api = {
   connect: (agentId: string, toolkit: string) =>
     call<{ redirectUrl: string }>('POST', `/api/agents/${agentId}/connections`, { toolkit }),
   disconnect: (connectionId: string) => call('DELETE', `/api/connections/${connectionId}`),
+  latestConversation: async (agentId: string) => {
+    const d = await call<any>('GET', `/api/conversations?agentId=${agentId}`);
+    return ((Array.isArray(d) ? d : d?.conversations ?? []) as Conversation[])[0] ?? null;
+  },
   createConversation: async (agentId: string) =>
     unwrap<Conversation>(await call('POST', '/api/conversations', { agentId }), 'conversation'),
   getConversation: (id: string) => call<any>('GET', `/api/conversations/${id}`),
@@ -73,6 +77,16 @@ const empty: Live = {
 const byId = <T extends { _id: string }>(list: T[] | undefined): ById<T> =>
   Object.fromEntries((list ?? []).map((d) => [d._id, d]));
 
+function savedAsks(conversationId: string): ById<Ask> {
+  try { return JSON.parse(localStorage.getItem(`asks:${conversationId}`) ?? '{}'); } catch { return {}; }
+}
+function saveAsk(ask: Ask) {
+  if (ask.status === 'open') return;
+  const all = savedAsks(ask.conversationId);
+  all[ask._id] = ask;
+  localStorage.setItem(`asks:${ask.conversationId}`, JSON.stringify(all));
+}
+
 /** Keeps one conversation's documents in local state, upserted by `_id`. */
 export function useConversation(conversationId: string | null, agentId: string | null): Live {
   const [live, setLive] = useState<Live>(empty);
@@ -94,8 +108,8 @@ export function useConversation(conversationId: string | null, agentId: string |
         ...prev,
         conversation: snap.conversation ?? null,
         messages: byId(snap.messages),
-        // Keep answered asks we already know about; the snapshot holds the open ones.
-        asks: { ...prev.asks, ...byId(snap.asks ?? snap.openAsks) },
+        // The snapshot holds only open asks; answered ones we saw are kept locally.
+        asks: { ...savedAsks(conversationId), ...prev.asks, ...byId(snap.asks ?? snap.openAsks) },
         ledger: { ...prev.ledger, ...byId(snap.ledger ?? snap.ledgerEntries ?? snap.entries) },
         executions: { ...prev.executions, ...byId(snap.executions) },
         connections: byId(conns),
@@ -106,7 +120,7 @@ export function useConversation(conversationId: string | null, agentId: string |
       setLive((prev) => {
         switch (ev.type) {
           case 'message': return { ...prev, messages: { ...prev.messages, [ev.message._id]: ev.message } };
-          case 'ask': return { ...prev, asks: { ...prev.asks, [ev.ask._id]: ev.ask } };
+          case 'ask': saveAsk(ev.ask); return { ...prev, asks: { ...prev.asks, [ev.ask._id]: ev.ask } };
           case 'ledger': return { ...prev, ledger: { ...prev.ledger, [ev.entry._id]: ev.entry } };
           case 'conversation': return { ...prev, conversation: ev.conversation };
           case 'execution': return { ...prev, executions: { ...prev.executions, [ev.execution._id]: ev.execution } };

@@ -6,7 +6,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import type { Action, CallCtx, LedgerEntry, McpToolDef, Provider, ToolSource } from '../../shared/types.js';
-import { col, db, newId, OWNER_ID, type AskDoc, type RuleDoc } from '../db.js';
+import { client, col, db, newId, OWNER_ID, type AskDoc, type RuleDoc } from '../db.js';
 import { changes } from '../changes.js';
 import { createComposioSource } from '../integrations/index.js';
 import { appendLedger } from './ledger.js';
@@ -275,34 +275,46 @@ export async function answerAsk(askId: string, a: Answer): Promise<{ ok: true; a
   const at = new Date();
   const answer = { by, source: a.source ?? 'button', scope, transcript: a.transcript, verdict: a.verdict, at };
 
-  const ask = await col.asks.findOneAndUpdate(
-    { _id: askId, status: 'open' },
-    { $set: { status: approved ? 'approved' : 'declined', answer } },
-    { returnDocument: 'after' },
-  );
+  const wasHeld = held.has(askId);
+  // The answer and its decision commit together, so a held call released by
+  // the change stream always finds the decision.
+  let ask: AskDoc | null = null;
+  const session = client.startSession();
+  try {
+    await session.withTransaction(async () => {
+      ask = await col.asks.findOneAndUpdate(
+        { _id: askId, status: 'open' },
+        { $set: { status: approved ? 'approved' : 'declined', answer } },
+        { returnDocument: 'after', session },
+      );
+      if (!ask) return;
+      await col.decisions.updateOne(
+        { conversationId: ask.conversationId, fingerprint: ask.fingerprint },
+        {
+          $set: { effect: approved ? 'approved' : 'declined', scope, askId: ask._id, by, at, usedAt: null },
+          $setOnInsert: { _id: newId() },
+        },
+        { upsert: true, session },
+      );
+    });
+  } finally {
+    await session.endSession();
+  }
   if (!ask) return { ok: false, status: 409, error: 'This ask is not open.' };
+  const done: AskDoc = ask;
 
-  await col.decisions.updateOne(
-    { conversationId: ask.conversationId, fingerprint: ask.fingerprint },
-    {
-      $set: { effect: approved ? 'approved' : 'declined', scope, askId: ask._id, by, at, usedAt: null },
-      $setOnInsert: { _id: newId() },
-    },
-    { upsert: true },
-  );
-
-  const agent = await col.agents.findOne({ _id: ask.agentId });
-  const action = { name: ask.action, kind: 'write' as const };
+  const agent = await col.agents.findOne({ _id: done.agentId });
+  const action = { name: done.action, kind: 'write' as const };
   await appendLedger({
-    agentId: ask.agentId, agentVersion: agent?.version ?? 1, conversationId: ask.conversationId,
-    executionId: ask.executionId, provider: ask.askedByProvider, action: action.name,
-    kind: (sourceForAction(ask.action)?.actionsOf(ask.action, ask.args)?.[0]?.kind) ?? action.kind,
-    args: ask.args, fingerprint: ask.fingerprint, outcome: approved ? 'approved' : 'declined',
+    agentId: done.agentId, agentVersion: agent?.version ?? 1, conversationId: done.conversationId,
+    executionId: done.executionId, provider: done.askedByProvider, action: action.name,
+    kind: (sourceForAction(done.action)?.actionsOf(done.action, done.args)?.[0]?.kind) ?? action.kind,
+    args: done.args, fingerprint: done.fingerprint, outcome: approved ? 'approved' : 'declined',
     decidedBy: `${by} (${answer.source}${a.verdict ? `, judge: ${a.verdict}` : ''}, ${scope})`,
   });
 
-  if (approved && !held.has(ask._id)) onLateApproval(ask);
-  return { ok: true, ask };
+  if (approved && !wasHeld) onLateApproval(done);
+  return { ok: true, ask: done };
 }
 
 /** Mark open asks of a conversation (or of one execution) with a new status. */
