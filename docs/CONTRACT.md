@@ -28,7 +28,7 @@ MongoDB Atlas is the identity, policy, audit and conversation store.
 - Secrets live in the root `.env` (never committed, never printed). It
   contains `&`, so read it with a dotenv parser, never `source`.
 - A track writes only in its own folder. Nobody runs `git` commands: the
-  orchestrating session commits.
+  coordinating session commits.
 - One user exists today: `ownerId = "miro"`. No login.
 - TypeScript on Node 24, ES modules, run with `tsx`. The root `package.json`
   serves `server/` and `shared/` (Hono, the MongoDB driver, the MCP SDK, zod,
